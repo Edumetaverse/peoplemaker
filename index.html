@@ -502,78 +502,118 @@ function buildMesh(gender,style){
   /* ---- neck + head ---- */
   loft([rY(1.447,.067,.062,W2(B.chest,B.neck),S.trim),rY(1.478,.058,.056,W2(B.chest,B.neck),S.trim)],{capStart:false,capEnd:false});
   loft([rY(1.44,.055,.055,W2(B.chest,B.neck),S.skin),rY(1.50,.050,.050,W1(B.neck),S.skin),rY(1.54,.050,.052,W2(B.neck,B.head),S.skin)],{capStart:false});
-  // Head with a modelled profile. Each ring's front vertices are pushed forward/back (dz) so that, from the side,
-  // the face has: a sloping forehead, a brow ridge, recessed eye sockets, a nose base and upper lip that stand
-  // proud, a projecting chin and a jaw that turns under.
-  const fprof=(dz,yo=0)=>(s,c)=>[0,c>.5?yo:0,dz*Math.max(0,c)];
+  // ---- Head: 12 sides x 14 rings. Each ring's front vertices are pushed forward/back (dz) and the cheek facets get a
+  // little extra (cheek) so, from every side, the face has a sloping forehead, a brow ridge, recessed eye sockets,
+  // cheekbones, a nose base and upper lip that stand proud, a projecting chin and a jaw that turns under. ----
+  const NH=12, KH=1/Math.cos(Math.PI/NH);
+  const cheekG=(s,c)=>c>0?Math.exp(-(((Math.abs(s)-.72)/.24)**2)):0;
+  // [y, rx, rz, cz, dz, yOffsetAtFront, cheek]
+  const HEAD=[
+    [1.525,.045,.060,.010,.016,-.004,0],
+    [1.540,.052,.066,.009,.012,0,0],
+    [1.555,.058,.072,.0075,.008,0,0],
+    [1.575,.068,.082,.005,.004,0,0],
+    [1.590,.0705,.0845,.004,.0035,0,.001],
+    [1.605,.073,.087,.003,.003,0,.002],
+    [1.625,.0755,.0895,.0015,0,0,.004],
+    [1.640,.078,.092,0,-.003,0,.004],
+    [1.658,.078,.092,0,-.0005,0,.002],
+    [1.675,.078,.092,0,.004,0,0],
+    [1.693,.078,.092,0,.001,0,0],
+    [1.710,.078,.092,0,-.002,0,0],
+    [1.738,.069,.082,0,0,0,0],
+    [1.765,.058,.070,0,0,0,0]
+  ];
   const stubbleOn=!F&&style.beard==='stubble';
-  loft([
-    rY(1.525,.045,.060,W1(B.head),S.skin,0,.010,fprof(.016,-.004)),   // chin
-    rY(1.550,.057,.071,W1(B.head),S.skin,0,.008,fprof(.008)),         // below the lip
-    rY(1.575,.068,.082,W1(B.head),S.skin,0,.005,fprof(.004)),         // mouth
-    rY(1.605,.073,.087,W1(B.head),S.skin,0,.003,fprof(.003)),         // nose base / upper lip
-    rY(1.640,.078,.092,W1(B.head),S.skin,0,0,fprof(-.003)),           // eye sockets (recessed)
-    rY(1.675,.078,.092,W1(B.head),S.skin,0,0,fprof(.004)),            // brow ridge
-    rY(1.710,.078,.092,W1(B.head),S.skin,0,0,fprof(-.002)),           // forehead
-    rY(1.765,.058,.070,W1(B.head),S.skin)                             // crown
-  ],{cell:(i,j)=>{
-    if(stubbleOn&&i<=3&&(j===7||j===0||j===6||j===1||j===5)) return S.stubble;   // stubble: jaw, chin and cheeks
-    if((i===2||i===3)&&(j===0||j===6)) return S.blush;                           // rosy cheeks
+  loft(HEAD.map(([y,rx,rz,cz,dz,yo,ch])=>
+    rY(y,rx,rz,W1(B.head),S.skin,0,cz,(s,c)=>[0,c>.5?yo:0,dz*Math.max(0,c)+ch*cheekG(s,c)])
+  ),{n:NH,cell:(i,j)=>{
+    const inner=(j===11||j===0||j===10||j===1||j===9||j===2||j===8);
+    if(stubbleOn&&i<=6&&inner) return S.stubble;                                      // stubble: jaw, chin and cheeks
+    if(i>=3&&i<=6&&(j===0||j===1||j===9||j===10)) return S.blush;                     // rosy cheeks
     return undefined;
   }});
-  // eyes: almond-shaped white, a coloured iris, a dark pupil and a white highlight. Everything is weighted to the
-  // eye bone, so the whole eye (lashes included) squashes shut on a blink.
+  // front surface height of the head at lateral position x and height y (used to seat the face features)
+  const headRingZ=(r,x)=>{
+    const [,rx,rz,cz,dz,,ch]=r, pts=[];
+    for(let j=0;j<3;j++){                       // vertices at 15, 45 and 75 degrees
+      const th=(j+.5)*2*Math.PI/NH, sn=Math.sin(th), cs=Math.cos(th);
+      pts.push([rx*KH*sn, cz+rz*KH*cs+dz*Math.max(0,cs)+ch*cheekG(sn,cs)]);
+    }
+    const ax=Math.abs(x);
+    if(ax<=pts[0][0]) return pts[0][1];
+    for(let i=0;i<2;i++) if(ax<=pts[i+1][0]){const t=(ax-pts[i][0])/(pts[i+1][0]-pts[i][0]);return pts[i][1]+(pts[i+1][1]-pts[i][1])*t;}
+    return pts[2][1];
+  };
+  const faceZ=(x,y)=>{
+    if(y<=HEAD[0][0]) return headRingZ(HEAD[0],x);
+    for(let i=0;i<HEAD.length-1;i++){
+      if(y<=HEAD[i+1][0]){const t=(y-HEAD[i][0])/(HEAD[i+1][0]-HEAD[i][0]);return headRingZ(HEAD[i],x)*(1-t)+headRingZ(HEAD[i+1],x)*t;}
+    }
+    return headRingZ(HEAD[HEAD.length-1],x);
+  };
+
+  // eyes: almond-shaped white, a coloured iris, a dark pupil and a white highlight. Every layer follows the surface of
+  // the face (so nothing floats at the temples) and is weighted to the eye bone, so the whole eye squashes shut on a blink.
   [[.034,B.eyeL,1],[-.034,B.eyeR,-1]].forEach(([ex,eb,sd])=>{
     const w=W1(eb), ey=1.655;
-    // the face turns away at the temples, so the outer part of the eye is pulled back with it (no white block sticking out)
-    const wrap=(s,c)=>[0,0,-.026*Math.max(0,(Math.abs(s)-.4)/.6)];
-    const wr=(rz)=>{const r=rZ(ex,ey,rz[0],.0185,.0102,w,S.sole);r.tw=wrap;return r;};
-    loft([wr([.0715]),wr([.0920])],{n:8});                                                             // sclera (white)
-    loft([rZ(ex,ey,.0900,.0088,.0088,w,S.iris),rZ(ex,ey,.0933,.0088,.0088,w,S.iris)],{n:8});         // iris
-    loft([rZ(ex,ey,.0923,.0043,.0043,w,S.eye),rZ(ex,ey,.0941,.0043,.0043,w,S.eye)],{n:6});           // pupil
-    loft([rZ(ex,ey,.0935,.0021,.0021,w,S.sole),rZ(ex,ey,.0949,.0021,.0021,w,S.sole)],{n:4});         // highlight
-    // upper lash line: a thick dark arc over the eye (a small flick at the outer corner for the female face)
-    const pts=[[-.0185,-.0030],[-.0090,.0004],[0,.0024],[.0090,.0010],[.0185,-.0022]];
-    if(F) pts.push([.0258,.0006]);
-    loft(pts.map(([dx,dy],i)=>({c:[ex+sd*dx,ey+.0102+dy,.0932-.026*Math.min(1.25,Math.max(0,(Math.abs(dx)-.006)/.0125))],U:[0,(F&&i===pts.length-1)?.0018:.0029,0],V:[0,0,.0030],w,slot:S.eye})),{n:4});
+    const layer=(rx,ry,n,offBack,offFront,slot)=>{
+      const K=1/Math.cos(Math.PI/n);
+      const mk=off=>{
+        const zc=faceZ(Math.abs(ex),ey)+off;                 // ring centre sits on the face; vertices follow the surface
+        const r=rZ(ex,ey,zc,rx,ry,w,slot);
+        r.tw=(s,c)=>[0,0,faceZ(Math.abs(ex+rx*K*s),ey+ry*K*c)+off-zc];
+        return r;
+      };
+      loft([mk(offBack),mk(offFront)],{n});
+    };
+    layer(.0185,.0102,10,-.0100,.0010,S.sole);      // sclera
+    layer(.0088,.0088,8,-.0040,.0024,S.iris);       // iris
+    layer(.0043,.0043,6,-.0015,.0036,S.eye);        // pupil
+    layer(.0021,.0021,4,.0010,.0046,S.sole);        // highlight
+    // upper lash line (male face only: on the female face it read as a second eyebrow under the real one)
+    if(!F){
+      const pts=[[-.0185,-.0030],[-.0090,.0004],[0,.0024],[.0090,.0010],[.0185,-.0022]];
+      loft(pts.map(([dx,dy])=>{
+        const x=ex+sd*dx, y=ey+.0102+dy;
+        return {c:[x,y,faceZ(Math.abs(x),y)+.0026],U:[0,.0026,0],V:[0,0,.0030],w,slot:S.eye};
+      }),{n:4});
+    }
   });
   // eyebrows: arched and tapered (thick at the nose, thin at the temple); a little finer on the female face
   [1,-1].forEach(sd=>{
     const th=F?.82:1.08;
-    const rr=(x,y,t)=>({c:[sd*x,y,.0942],U:[0,.0034*t*th,0],V:[0,0,.0030],w:W1(B.head),slot:S.hair});
+    const rr=(x,y,t)=>({c:[sd*x,y,faceZ(x,y)+.0020],U:[0,.0034*t*th,0],V:[0,0,.0030],w:W1(B.head),slot:S.hair});
     loft([rr(.0135,1.6738,1.05),rr(.0275,1.6788,1.0),rr(.0415,1.6812,.82),rr(.0545,1.6758,.52)],{n:4});
   });
-  // nose: a triangular wedge. narrow bridge between the eyes, wider base, tip standing proud of the face
+  // nose: a slanted column of rings (narrow bridge between the eyes, widening to a rounded tip with nostril wings);
+  // the underside is a shade darker
   {
-    const nv=(x,y,z)=>addV([x,y,z],W1(B.head));
-    const T=nv(0,1.664,.0975), L=nv(-.0150,1.601,.0880), R=nv(.0150,1.601,.0880), A=nv(0,1.607,.1160);
-    const ref=[0,1.63,.096];
-    addTri(T,L,A,S.skin,ref);   // left ridge
-    addTri(T,R,A,S.skin,ref);   // right ridge
-    addTri(L,R,A,S.skinShade,ref);   // underside / nostrils, a shade darker
-    addTri(T,L,R,S.skin,ref);   // back (against the face)
+    const nr=[[1.665,.0015,.0042,.0042],[1.642,.0055,.0068,.0058],[1.622,.0105,.0098,.0078],[1.607,.0150,.0128,.0098],[1.597,.0125,.0120,.0080]];
+    loft(nr.map(([y,off,rx,rz])=>({c:[0,y,faceZ(0,y)+off],U:[rx,0,0],V:[0,0,rz],w:W1(B.head),slot:S.skin})),{n:6,endSlot:S.skinShade});
   }
-  // mouth: a cupid's-bow upper lip, a fuller lower lip in a lighter tone, a dark parting line and lifted corners
+  // mouth: a cupid's-bow upper lip and a fuller, lighter lower lip (each a curved 4-ring bar following the face),
+  // a dark parting line and lifted corners
   {
     const wh=W1(B.head);
-    box([ .0085,1.5800,.0915],[.0085,.0029,.0032],wh,S.mouth);
-    box([-.0085,1.5800,.0915],[.0085,.0029,.0032],wh,S.mouth);
-    box([0,1.5724,.0903],[.0128,.0037,.0034],wh,S.lowerLip);
-    box([0,1.5765,.0912],[.0172,.0007,.0030],wh,S.lipLine);
-    box([ .0185,1.5782,.0896],[.0036,.0030,.0030],wh,S.mouth);
-    box([-.0185,1.5782,.0896],[.0036,.0030,.0030],wh,S.mouth);
+    const bar=(xs,y0,dys,rys,rz,off,slot)=>loft(xs.map((x,i)=>({c:[x,y0+dys[i],faceZ(x,y0+dys[i])+off],U:[0,rys[i],0],V:[0,0,rz],w:wh,slot})),{n:4});
+    bar([-.0185,-.0095,0,.0095,.0185],1.5800,[-.0012,.0004,-.0004,.0004,-.0012],[.0020,.0028,.0024,.0028,.0020],.0034,.0018,S.mouth);
+    bar([-.0140,-.0070,0,.0070,.0140],1.5724,[.0008,0,-.0004,0,.0008],[.0022,.0034,.0038,.0034,.0022],.0036,.0012,S.lowerLip);
+    bar([-.0172,0,.0172],1.5764,[0,0,0],[.0007,.0007,.0007],.0030,.0010,S.lipLine);
+    [1,-1].forEach(sd=>box([sd*.0185,1.5782,faceZ(.0185,1.5782)+.0010],[.0036,.0030,.0030],wh,S.mouth));
   }
   // beards (male only): follow the jaw, with an opening around the lips
   if(!F&&style.beard&&style.beard!=='none'&&style.beard!=='stubble'){
     const bd=style.beard, wh=W1(B.head), kk=1/Math.cos(Math.PI/8);
     const moustache=()=>{
       [1,-1].forEach(sd=>{
-        box([sd*.0105,1.5868,.0948],[.0105,.0032,.0040],wh,S.hair);
-        box([sd*.0235,1.5846,.0925],[.0052,.0034,.0036],wh,S.hair);
+        box([sd*.0105,1.5868,faceZ(.0105,1.5868)+.0036],[.0105,.0032,.0040],wh,S.hair);
+        box([sd*.0235,1.5846,faceZ(.0235,1.5846)+.0032],[.0052,.0034,.0036],wh,S.hair);
       });
     };
     const shell=(spec,holeBands)=>{
-      const rings=spec.map(([y,rx,rz,cz,dz])=>rY(y,rx,rz,wh,S.hair,0,cz,(s,c)=>{
+      const rings=spec.map(([y,rx0,rz0,cz,dz])=>rY(y,rx0+.004,rz0+.004,wh,S.hair,0,cz,(s,c)=>{
+        const rx=rx0+.004, rz=rz0+.004;
         if(c<-.6) return [-.5*rx*kk*s,0,-rz*kk*c];       // pull the rearmost vertices in under the jaw
         return [0,0,dz*Math.max(0,c)];
       }));
@@ -1804,55 +1844,71 @@ async function buildGLB(includeAnim){
     chunks.push(buf);byteOff+=padded;return views.length-1;
   }
   const addAcc=(bv,ct,count,type,extra={})=>{accessors.push({bufferView:bv,componentType:ct,count,type,...extra});return accessors.length-1;};
-  // expand an indexed triangle list into flat, non-indexed skinned vertex streams
+  // Build a skinned primitive from an indexed triangle list. Faces are flat-shaded, so each corner carries its face
+  // normal; identical corners (same position, normal, UV, weights, shade) are merged and the primitive is indexed.
+  // Quantised where the core glTF spec allows it: UVs as normalised uint16, weights/shading as normalised uint8.
   function makePrim(tris,uvFn,aoArr){
-    const N=tris.length*3;
-    const pos=new Float32Array(N*3),nor=new Float32Array(N*3),uv=new Float32Array(N*2),jnt=new Uint8Array(N*4),wgt=new Float32Array(N*4);
-    const mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
-    const col=aoArr?new Uint8Array(N*4):null;
-    let o=0;
+    const quantW=bw=>{
+      const q=bw.map(w=>Math.round(w*255));
+      const d=255-q.reduce((x,y)=>x+y,0);
+      if(d!==0){let mi=0;for(let i=1;i<4;i++)if(bw[i]>bw[mi])mi=i;q[mi]+=d;}
+      return q;
+    };
+    const map=new Map(), P=[],Nn=[],U=[],J=[],Wt=[],C=[],idx=[];
     tris.forEach(t=>{
       const a=verts[t.i[0]].p,b=verts[t.i[1]].p,c=verts[t.i[2]].p;
       const n=v3.norm(v3.cross(v3.sub(b,a),v3.sub(c,a)));
       for(let k=0;k<3;k++){
-        const vt=verts[t.i[k]],u=uvFn(t,k);
-        pos.set(vt.p,o*3);nor.set(n,o*3);uv[o*2]=u[0];uv[o*2+1]=u[1];
-        if(col){const q=Math.round(255*aoArr[t.i[k]]);col[o*4]=q;col[o*4+1]=q;col[o*4+2]=q;col[o*4+3]=255;}
-        for(let j=0;j<4;j++){jnt[o*4+j]=vt.bi[j];wgt[o*4+j]=vt.bw[j];}
-        for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],vt.p[j]);mx[j]=Math.max(mx[j],vt.p[j]);}
-        o++;
+        const vt=verts[t.i[k]],u=uvFn(t,k),w8=quantW(vt.bw);
+        const sh=aoArr?Math.round(255*aoArr[t.i[k]]):255;
+        const key=[vt.p[0].toFixed(5),vt.p[1].toFixed(5),vt.p[2].toFixed(5),n[0].toFixed(4),n[1].toFixed(4),n[2].toFixed(4),
+                   u[0].toFixed(5),u[1].toFixed(5),vt.bi.join(','),w8.join(','),sh].join('|');
+        let id=map.get(key);
+        if(id===undefined){
+          id=P.length/3;map.set(key,id);
+          P.push(vt.p[0],vt.p[1],vt.p[2]);Nn.push(n[0],n[1],n[2]);
+          U.push(Math.round(u[0]*65535),Math.round(u[1]*65535));
+          J.push(vt.bi[0],vt.bi[1],vt.bi[2],vt.bi[3]);Wt.push(w8[0],w8[1],w8[2],w8[3]);
+          C.push(sh,sh,sh,255);
+        }
+        idx.push(id);
       }
     });
+    const N=P.length/3;
+    const mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+    for(let i=0;i<N;i++)for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],P[i*3+j]);mx[j]=Math.max(mx[j],P[i*3+j]);}
     const out={
-      POSITION:addAcc(addView(new Uint8Array(pos.buffer),34962),5126,N,'VEC3',{min:mn,max:mx}),
-      NORMAL:addAcc(addView(new Uint8Array(nor.buffer),34962),5126,N,'VEC3'),
-      TEXCOORD_0:addAcc(addView(new Uint8Array(uv.buffer),34962),5126,N,'VEC2'),
-      JOINTS_0:addAcc(addView(jnt,34962),5121,N,'VEC4'),
-      WEIGHTS_0:addAcc(addView(new Uint8Array(wgt.buffer),34962),5126,N,'VEC4')
+      POSITION:addAcc(addView(new Uint8Array(new Float32Array(P).buffer),34962),5126,N,'VEC3',{min:mn,max:mx}),
+      NORMAL:addAcc(addView(new Uint8Array(new Float32Array(Nn).buffer),34962),5126,N,'VEC3'),
+      TEXCOORD_0:addAcc(addView(new Uint8Array(new Uint16Array(U).buffer),34962),5123,N,'VEC2',{normalized:true}),
+      JOINTS_0:addAcc(addView(new Uint8Array(J),34962),5121,N,'VEC4'),
+      WEIGHTS_0:addAcc(addView(new Uint8Array(Wt),34962),5121,N,'VEC4',{normalized:true})
     };
-    if(col) out.COLOR_0=addAcc(addView(col,34962),5121,N,'VEC4',{normalized:true});
-    return out;
+    if(aoArr) out.COLOR_0=addAcc(addView(new Uint8Array(C),34962),5121,N,'VEC4',{normalized:true});
+    const big=N>65535;
+    const indices=addAcc(addView(new Uint8Array((big?new Uint32Array(idx):new Uint16Array(idx)).buffer),34963),big?5125:5123,idx.length,'SCALAR');
+    return {attrs:out,indices};
   }
   const slotUV=(t,k)=>[((t.slot%8)+.5)/8,(Math.floor(t.slot/8)+.5)/4];
-  const bodyAttr=makePrim(mesh.tris,slotUV,state.ao?mesh.ao:null);
+  const bodyPrim=makePrim(mesh.tris,slotUV,state.ao?mesh.ao:null);
   const ibm=new Float32Array(NB*16);
   for(let i=0;i<NB;i++){const m=[1,0,0,0,0,1,0,0,0,0,1,0,-restWorld.P[i][0],-restWorld.P[i][1],-restWorld.P[i][2],1];ibm.set(m,i*16);}
   const aIbm=addAcc(addView(new Uint8Array(ibm.buffer)),5126,NB,'MAT4');
   const imgPalette=addView(await paletteFromState());
 
-  const prims=[{attributes:bodyAttr,material:0,mode:4}];
+  const prims=[{attributes:bodyPrim.attrs,indices:bodyPrim.indices,material:0,mode:4}];
   const materials=[{name:'Person_palette',pbrMetallicRoughness:{baseColorTexture:{index:0},metallicFactor:0,roughnessFactor:.85},doubleSided:false}];
   const textures=[{sampler:0,source:0}];
   const samplers=[{magFilter:9728,minFilter:9728,wrapS:33071,wrapT:33071}];
   const images=[{name:'palette',bufferView:imgPalette,mimeType:'image/png'}];
   if(mesh.logoTris.length){
-    const logoAttr=makePrim(mesh.logoTris.map(i=>({i})),(t,k)=>verts[t.i[k]].uv);
+    const logoPrim=makePrim(mesh.logoTris.map(i=>({i})),(t,k)=>verts[t.i[k]].uv);
     const imgLogo=addView(b64bytes(LOGO_ATLAS_B64));
     images.push({name:'edumetaverse_logo',bufferView:imgLogo,mimeType:'image/png'});
     samplers.push({magFilter:9729,minFilter:9987,wrapS:33071,wrapT:33071});
     textures.push({sampler:1,source:1});
     materials.push({name:'Person_logo',pbrMetallicRoughness:{baseColorTexture:{index:1},metallicFactor:0,roughnessFactor:.9},alphaMode:'MASK',alphaCutoff:.2,doubleSided:false});
-    prims.push({attributes:logoAttr,material:1,mode:4});
+    prims.push({attributes:logoPrim.attrs,indices:logoPrim.indices,material:1,mode:4});
   }
 
   // nodes: 0 root, 1 mesh, 2.. joints
@@ -1880,9 +1936,6 @@ async function buildGLB(includeAnim){
       const frames=[];
       for(let f=0;f<nK-1;f++) frames.push(sampleClip(kind,f/IDLE_FPS,rotP,rootP));
       frames.push(frames[0]);                       // exact loop: last key == first key
-      const tFull=new Float32Array(nK);for(let f=0;f<nK;f++)tFull[f]=f/IDLE_FPS;
-      tFull[nK-1]=def.len;
-      const aFull=addAcc(addView(new Uint8Array(tFull.buffer)),5126,nK,'SCALAR',{min:[0],max:[def.len]});
       const aEnd=addAcc(addView(new Uint8Array(new Float32Array([0,def.len]).buffer)),5126,2,'SCALAR',{min:[0],max:[def.len]});
       const samplers=[],channels=[];
       const addTrack=(node,path,n,get)=>{
@@ -1894,10 +1947,28 @@ async function buildGLB(includeAnim){
         const v0=vals[0];
         let varying=false;
         for(let f=1;f<vals.length&&!varying;f++) for(let j=0;j<n;j++) if(Math.abs(vals[f][j]-v0[j])>1e-5){varying=true;break;}
-        const keys=varying?nK:2, arr=new Float32Array(keys*n);
-        if(varying) vals.forEach((v,f)=>arr.set(v,f*n)); else {arr.set(v0,0);arr.set(v0,n);}
-        const acc=addAcc(addView(new Uint8Array(arr.buffer)),5126,keys,n===4?'VEC4':'VEC3');
-        samplers.push({input:varying?aFull:aEnd,output:acc,interpolation:'LINEAR'});
+        let input=aEnd, arr;
+        if(varying){
+          // Ramer-Douglas-Peucker over time: keep a key only if the straight line between its neighbours is off by > tol
+          const tol=path==='rotation'?0.0006:(path==='translation'?0.0003:0.0015);
+          const keep=new Array(vals.length).fill(false);keep[0]=keep[vals.length-1]=true;
+          const stack=[[0,vals.length-1]];
+          while(stack.length){
+            const [i,j]=stack.pop();let worst=-1,wk=-1;
+            for(let k=i+1;k<j;k++){
+              const t=(k-i)/(j-i);let e=0;
+              for(let c=0;c<n;c++) e=Math.max(e,Math.abs(vals[k][c]-(vals[i][c]+(vals[j][c]-vals[i][c])*t)));
+              if(e>worst){worst=e;wk=k;}
+            }
+            if(worst>tol&&wk>0){keep[wk]=true;stack.push([i,wk],[wk,j]);}
+          }
+          const ks=[];keep.forEach((kp,f)=>{if(kp)ks.push(f);});
+          const tarr=new Float32Array(ks.length);ks.forEach((f,i)=>{tarr[i]=f===vals.length-1?def.len:f/IDLE_FPS;});
+          input=addAcc(addView(new Uint8Array(tarr.buffer)),5126,ks.length,'SCALAR',{min:[0],max:[def.len]});
+          arr=new Float32Array(ks.length*n);ks.forEach((f,i)=>arr.set(vals[f],i*n));
+        } else { arr=new Float32Array(2*n);arr.set(v0,0);arr.set(v0,n); }
+        const acc=addAcc(addView(new Uint8Array(arr.buffer)),5126,arr.length/n,n===4?'VEC4':'VEC3');
+        samplers.push({input,output:acc,interpolation:'LINEAR'});
         channels.push({sampler:samplers.length-1,target:{node,path}});
       };
       // every clip drives every bone, so switching clips can never leave a bone stuck in the previous pose
