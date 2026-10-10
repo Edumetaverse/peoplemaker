@@ -264,7 +264,7 @@ function viewMat(pos,r,u,f){return [r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u
 function mmul(a,b){const o=new Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
 
 /* ================= skeleton ================= */
-const SL={skin:0,hair:1,eye:2,top:3,bottom:4,shoes:5,mouth:6,sole:7,trim:8,outer:9,reflect:10,hat:11,hatTrim:12,belt:13,lanyard:14,iris:15,blush:16,lowerLip:17,skinShade:18,lipLine:19,stubble:20,hairHi:21};
+const SL={skin:0,hair:1,eye:2,top:3,bottom:4,shoes:5,mouth:6,sole:7,trim:8,outer:9,reflect:10,hat:11,hatTrim:12,belt:13,lanyard:14,iris:15,blush:16,lowerLip:17,skinShade:18,lipLine:19,stubble:20,hairHi:21,sclera:22,irisDark:23};
 const B={hips:0,spine:1,chest:2,neck:3,head:4,eyeL:5,eyeR:6,clavL:7,upperL:8,foreL:9,handL:10,clavR:11,upperR:12,foreR:13,handR:14,thighL:15,shinL:16,footL:17,thighR:18,shinR:19,footR:20};
 const NB=21;
 const BONE_NAMES=['hips','spine','chest','neck','head','eye.L','eye.R','clavicle.L','upperArm.L','forearm.L','hand.L','clavicle.R','upperArm.R','forearm.R','hand.R','thigh.L','shin.L','foot.L','thigh.R','shin.R','foot.R'];
@@ -576,48 +576,61 @@ function buildMesh(gender,style){
     return headRingZ(HEAD[HEAD.length-1],x);
   };
 
-  // eyes: almond-shaped white, a coloured iris, a dark pupil and a white highlight, with a soft skin-shade lid crease
-  // above. Every layer follows the surface of the face and is weighted to the eye bone, so the eye squashes shut on a blink.
-  // (Slightly smaller and flatter on the male face.)
-  const EYE=F?{rx:.0185,ry:.0102,iris:.0088,pupil:.0043}:{rx:.0166,ry:.0079,iris:.0076,pupil:.0038};
+  // Eyes. Real eyes are not wide open discs: the white is only visible at the sides, the iris is large with a darker
+  // rim, and the upper eyelid covers the top of the iris. Built here as: a warm off-white sclera, a dark-ringed iris,
+  // a small pupil, a skin-coloured upper lid arc that tucks over the top of the eye, a soft crease above it and a
+  // faint lower-lid line. Everything follows the face surface and is weighted to the eye bone, so the eye closes on a blink.
+  const EYE=F?{rx:.0160,ry:.0083,iris:.0070,pupil:.0031}:{rx:.0150,ry:.0074,iris:.0064,pupil:.0029};
   [[.034,B.eyeL,1],[-.034,B.eyeR,-1]].forEach(([ex,eb,sd])=>{
     const w=W1(eb), ey=1.655;
-    const layer=(rx,ry,n,offBack,offFront,slot)=>{
-      const K=1/Math.cos(Math.PI/n);
+    const layer=(rx,ry,n,offBack,offFront,slot,dx=0,dy=0)=>{
+      const K=1/Math.cos(Math.PI/n), cx=ex+dx, cy=ey+dy;
       const mk=off=>{
-        const zc=faceZ(Math.abs(ex),ey)+off;                 // ring centre sits on the face; vertices follow the surface
-        const r=rZ(ex,ey,zc,rx,ry,w,slot);
-        r.tw=(s,c)=>[0,0,faceZ(Math.abs(ex+rx*K*s),ey+ry*K*c)+off-zc];
+        const zc=faceZ(Math.abs(cx),cy)+off;
+        const r=rZ(cx,cy,zc,rx,ry,w,slot);
+        r.tw=(s2,c)=>[0,0,faceZ(Math.abs(cx+rx*K*s2),cy+ry*K*c)+off-zc];
         return r;
       };
       loft([mk(offBack),mk(offFront)],{n});
     };
-    layer(EYE.rx,EYE.ry,12,-.0100,.0010,S.sole);      // sclera
-    layer(EYE.iris,EYE.iris,10,-.0040,.0024,S.iris);  // iris
-    layer(EYE.pupil,EYE.pupil,8,-.0015,.0036,S.eye);  // pupil
-    layer(.0021,.0021,4,.0010,.0046,S.sole);          // highlight
-    // lid crease: a thin, soft arc just above the eye in a shade of the skin (no dark lash line: it read as a second brow)
-    const cp=[[-1,-.0020],[-.5,.0014],[0,.0032],[.5,.0020],[1,-.0016]];
-    loft(cp.map(([f,dy])=>{
-      const x=ex+sd*f*EYE.rx*1.02, y=ey+EYE.ry+.0036+dy;
-      return {c:[x,y,faceZ(Math.abs(x),y)+.0016],U:[0,.0016,0],V:[0,0,.0024],w,slot:S.skinShade};
+    layer(EYE.rx,EYE.ry,12,-.0100,.0008,S.sclera);                    // sclera: warm off-white
+    layer(EYE.iris*1.14,EYE.iris*1.14,12,-.0040,.0016,S.irisDark);    // iris rim
+    layer(EYE.iris*.90,EYE.iris*.90,10,-.0030,.0022,S.iris);          // iris
+    layer(EYE.pupil,EYE.pupil,8,-.0015,.0030,S.eye);                  // pupil
+    layer(.0014,.0014,4,.0008,.0038,S.sole,-.0016,.0018);             // small catchlight, off-centre (upper left)
+    // upper eyelid: a skin-coloured arc over the top third of the eye, higher towards the nose side
+    const lid=[[-1.08,-.0032],[-.55,.0004],[0,.0020],[.55,.0012],[1.08,-.0026]];
+    loft(lid.map(([f,dy])=>{
+      const x=ex+sd*f*EYE.rx, y=ey+EYE.ry*.62+dy+.0020;
+      return {c:[x,y,faceZ(Math.abs(x),y)+.0042],U:[0,.0040,0],V:[0,0,.0030],w,slot:S.skin};
+    }),{n:4});
+    // soft lid crease above the lid and a faint lower-lid line (both a shade of the skin)
+    const crease=[[-1,-.0028],[-.5,.0006],[0,.0022],[.5,.0014],[1,-.0020]];
+    loft(crease.map(([f,dy])=>{
+      const x=ex+sd*f*EYE.rx*1.05, y=ey+EYE.ry+.0058+dy;
+      return {c:[x,y,faceZ(Math.abs(x),y)+.0016],U:[0,.0011,0],V:[0,0,.0022],w,slot:S.skinShade};
+    }),{n:4});
+    const low=[[-.8,.0008],[0,-.0006],[.8,.0008]];
+    loft(low.map(([f,dy])=>{
+      const x=ex+sd*f*EYE.rx, y=ey-EYE.ry-.0016+dy;
+      return {c:[x,y,faceZ(Math.abs(x),y)+.0012],U:[0,.0008,0],V:[0,0,.0018],w,slot:S.skinShade};
     }),{n:4});
   });
   // eyebrows: arched and tapered (thick at the nose, thin at the temple). Finer and higher on the female face;
   // heavier, straighter and lower on the male face.
   [1,-1].forEach(sd=>{
-    const th=F?.82:1.32, dy=F?0:-.0022, arch=F?1:.55;
+    const th=F?.80:1.18, dy=F?0:-.0022, arch=F?1:.60;
     const rr=(x,y,t)=>({c:[sd*x,y+dy-(F?0:(y-1.6738)*(1-arch)),faceZ(x,y+dy)+.0020],U:[0,.0034*t*th,0],V:[0,0,.0032],w:W1(B.head),slot:S.hair});
     loft([rr(.0135,1.6738,1.05),rr(.0275,1.6788,1.0),rr(.0415,1.6812,.86),rr(.0545,1.6758,.55)],{n:4});
   });
   // nose: a slanted column of rings (narrow bridge between the eyes, widening to a rounded tip with nostril wings);
   // the underside is a shade darker; a little larger on the male face
   {
-    const NS=F?1:1.16, TIP=F?0:.003;
-    const nr=[[1.665,.0015,.0042,.0042],[1.642,.0055,.0068,.0058],[1.622,.0105+TIP*.5,.0098,.0078],[1.607,.0150+TIP,.0128,.0098],[1.597,.0125+TIP,.0120,.0080]];
+    const NS=F?.96:1.10, TIP=F?0:.0015;
+    const nr=[[1.660,.0012,.0040,.0040],[1.640,.0040,.0064,.0054],[1.622,.0078+TIP*.5,.0094,.0072],[1.608,.0112+TIP,.0122,.0090],[1.600,.0092+TIP,.0114,.0074]];
     loft(nr.map(([y,off,rx,rz])=>({c:[0,y,faceZ(0,y)+off],U:[rx*NS,0,0],V:[0,0,rz*NS],w:W1(B.head),slot:S.skin})),{n:6,endSlot:S.skinShade});
     // nostrils: two small dark openings under the tip
-    [1,-1].forEach(sd=>box([sd*.0065*NS,1.5978,faceZ(0,1.5978)+.0100+TIP],[.0026,.0010,.0030],W1(B.head),S.skinShade));
+    [1,-1].forEach(sd=>box([sd*.0062*NS,1.6005,faceZ(0,1.6005)+.0080+TIP],[.0025,.0010,.0028],W1(B.head),S.skinShade));
   }
   // mouth: a cupid's-bow upper lip and a fuller, lighter lower lip (each a curved 5-ring bar following the face),
   // a dark parting line and lifted corners. Thinner lips on the male face.
@@ -1503,7 +1516,7 @@ function shade(hex,f){
 const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#ffffff',shade(state.top,0.74),
   state.outerCol,'#dfe3e6',state.hatCol,shade(state.hatCol,0.7),'#4a3426','#c8372d',
   state.irisCol,mixHex(state.skin,'#e5606e',state.gender==='female'?0.30:0.13),mixHex(state.mouth,'#ffffff',0.20),
-  shade(state.skin,0.80),shade(state.mouth,0.55),mixHex(state.skin,state.hair,0.42),mixHex(state.hair,'#ffffff',0.17)];
+  shade(state.skin,0.80),shade(state.mouth,0.55),mixHex(state.skin,state.hair,0.42),mixHex(state.hair,'#ffffff',0.17),'#ece6df',shade(state.irisCol,0.50)];
 let bodyData=null,bodyCount=0;
 function displayPose(now){
   if(view.clip&&!previewPaused&&!drag){
