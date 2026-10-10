@@ -147,6 +147,7 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
       <option value="walk">Walk</option>
       <option value="run">Run</option>
       <option value="wave">Wave</option>
+      <option value="chat">Chat (explaining)</option>
     </select>
 
     <h2>View</h2>
@@ -163,6 +164,7 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
     <label class="chk"><input type="checkbox" id="expWalk" checked> Walk cycle</label>
     <label class="chk"><input type="checkbox" id="expRun" checked> Run cycle</label>
     <label class="chk"><input type="checkbox" id="expWave"> Wave</label>
+    <label class="chk"><input type="checkbox" id="expChat"> Chat (explaining something)</label>
     <div style="margin-top:10px"><button class="primary" id="export">Export GLB</button></div>
     <div class="size" id="sizeInfo">Calculating size&hellip;</div>
     <div class="bar"><i id="sizeBar"></i></div>
@@ -232,7 +234,7 @@ function viewMat(pos,r,u,f){return [r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u
 function mmul(a,b){const o=new Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
 
 /* ================= skeleton ================= */
-const SL={skin:0,hair:1,eye:2,top:3,bottom:4,shoes:5,mouth:6,sole:7};
+const SL={skin:0,hair:1,eye:2,top:3,bottom:4,shoes:5,mouth:6,sole:7,trim:8};
 const B={hips:0,spine:1,chest:2,neck:3,head:4,eyeL:5,eyeR:6,clavL:7,upperL:8,foreL:9,handL:10,clavR:11,upperR:12,foreR:13,handR:14,thighL:15,shinL:16,footL:17,thighR:18,shinR:19,footR:20};
 const NB=21;
 const BONE_NAMES=['hips','spine','chest','neck','head','eye.L','eye.R','clavicle.L','upperArm.L','forearm.L','hand.L','clavicle.R','upperArm.R','forearm.R','hand.R','thigh.L','shin.L','foot.L','thigh.R','shin.R','foot.R'];
@@ -329,7 +331,8 @@ function buildMesh(gender,style){
   const bust=F?((s,c)=>Math.abs(c)>.85?[0,0.004,0.024]:[0,0,0]):undefined;
   const T=F?[
     [0.84,0.135,0.098,W1(B.hips),S.bottom],
-    [0.93,0.172,0.112,W1(B.hips),S.top],
+    [0.93,0.172,0.112,W1(B.hips),S.trim],
+    [0.955,0.1556,0.1041,W1(B.hips),S.top],
     [1.00,0.126,0.090,W2(B.hips,B.spine),S.top],
     [1.10,0.130,0.094,W1(B.spine),S.top],
     [1.18,0.146,0.104,W2(B.spine,B.chest),S.top],
@@ -339,7 +342,8 @@ function buildMesh(gender,style){
     [1.47,0.055,0.058,W1(B.chest),S.top]
   ]:[
     [0.84,0.140,0.100,W1(B.hips),S.bottom],
-    [0.93,0.166,0.112,W1(B.hips),S.top],
+    [0.93,0.166,0.112,W1(B.hips),S.trim],
+    [0.955,0.1603,0.1070,W1(B.hips),S.top],
     [1.00,0.150,0.098,W2(B.hips,B.spine),S.top],
     [1.10,0.155,0.100,W1(B.spine),S.top],
     [1.18,0.170,0.108,W2(B.spine,B.chest),S.top],
@@ -395,6 +399,7 @@ function buildMesh(gender,style){
   else if(lb==='full') patch(-1,0,1.300,F?.120:.140,LOGO_RECT.plate);
 
   /* ---- neck + head ---- */
+  loft([rY(1.447,.067,.062,W2(B.chest,B.neck),S.trim),rY(1.478,.058,.056,W2(B.chest,B.neck),S.trim)],{capStart:false,capEnd:false});
   loft([rY(1.44,.055,.055,W2(B.chest,B.neck),S.skin),rY(1.50,.050,.050,W1(B.neck),S.skin),rY(1.54,.050,.052,W2(B.neck,B.head),S.skin)],{capStart:false});
   loft([
     rY(1.525,.045,.060,W1(B.head),S.skin,0,.010),
@@ -505,14 +510,15 @@ function buildMesh(gender,style){
   [1,-1].forEach(sd=>{
     const cl=sd>0?B.clavL:B.clavR, up=sd>0?B.upperL:B.upperR, fo=sd>0?B.foreL:B.foreR, ha=sd>0?B.handL:B.handR;
     const sleeveRings=noneS?0:(longS?6:4); // rings idx < this are sleeve (band colour = top)
+    const dEnd=noneS?-1:(longS?.50:.20);   // where the sleeve ends
     const spec=[ // d, r, weights
-      [-.04,.056,W1(cl)],[0,.058,W2(cl,up)],[.10,.056,W1(up)],[.20,.052,W1(up)],
-      [.29,.046,W2(up,fo)],[.38,.047,W1(fo)],[.50,.034,W1(fo)],[.55,.029,W2(fo,ha)]
+      [-.04,.056,W1(cl)],[0,.058,W2(cl,up)],[.10,.056,W1(up)],[.172,.0525,W1(up)],[.20,.052,W1(up)],
+      [.29,.046,W2(up,fo)],[.38,.047,W1(fo)],[.472,.036,W1(fo)],[.50,.034,W1(fo)],[.55,.029,W2(fo,ha)]
     ];
-    const rings=spec.map((s,i)=>{
-      const sleeve=i<sleeveRings, bulge=sleeve?1.08:1;
-      const r=s[1]*L*bulge;
-      return rX(sd*(sx+s[0]),SHY,r,r,s[2],sleeve?S.top:S.skin);
+    const rings=spec.map(s=>{
+      const sleeve=s[0]<dEnd-.001, cuff=sleeve&&s[0]>=dEnd-.029;
+      const r=s[1]*L*(sleeve?1.08:1);
+      return rX(sd*(sx+s[0]),SHY,r,r,s[2],cuff?S.trim:(sleeve?S.top:S.skin));
     });
     loft(rings,{capStart:false,capEnd:false});
     // end cap of the forearm hidden inside hand; start cap hidden inside torso (still close it)
@@ -521,8 +527,15 @@ function buildMesh(gender,style){
           rX(sd*(sx-.02),SHY,.057*cb,.057*cb,W1(cl),sleeveRings>0?S.top:S.skin)],{capEnd:false});
     // hand
     const hsz=F?.92:1;
-    const palm=[[0,.016,.027],[.040,.016,.035],[.085,.014,.038],[.125,.011,.034],[.168,.008,.022]]; // d, half-thick, half-wide
+    const palm=[[0,.016,.027],[.040,.016,.035],[.085,.014,.038]]; // d, half-thick, half-wide
     loft(palm.map(e=>rX(sd*(sx+.55+e[0]*hsz),SHY,e[1]*hsz,e[2]*hsz,W1(ha),S.skin)));
+    // four fingers (index nearest the thumb), each a tapered 4-sided prism
+    [[.027,.080],[.009,.088],[-.009,.082],[-.027,.066]].forEach(([fz,len])=>{
+      loft([
+        {c:[sd*(sx+.55+.083*hsz),SHY,fz*hsz],U:[0,.0085*hsz,0],V:[0,0,.0078*hsz],w:W1(ha),slot:S.skin},
+        {c:[sd*(sx+.55+(.085+len)*hsz),SHY-.002,fz*hsz],U:[0,.0062*hsz,0],V:[0,0,.0060*hsz],w:W1(ha),slot:S.skin}
+      ],{n:4});
+    });
     const thumb=[[.030,.030,.013],[.055,.046,.011],[.085,.056,.008]]; // d, forward offset, radius
     loft(thumb.map(e=>({c:[sd*(sx+.55+e[0]*hsz),SHY-.004,e[1]*hsz],U:[0,e[2]*hsz,0],V:[0,0,e[2]*hsz],w:W1(ha),slot:S.skin})),{n:6});
   });
@@ -553,6 +566,7 @@ function buildMesh(gender,style){
     loft(shoe.map(e=>rZ(cx,e[2]+.012,e[0]*fsz,e[1]*fsz,e[2],W1(ft),S.shoes)));
     const sole=[[-.055,.034],[-.010,.039],[.050,.042],[.110,.043],[.165,.038],[.195,.027]];
     loft(sole.map(e=>rZ(cx,.008,e[0]*fsz,e[1]*fsz,.008,W1(ft),S.sole)));
+    loft([rZ(cx,.0975,.012*fsz,.0105*fsz,.0030,W1(ft),S.sole),rZ(cx,.0725,.098*fsz,.0105*fsz,.0030,W1(ft),S.sole)],{n:4});
   });
 
   // uniform height scale
@@ -622,7 +636,16 @@ function skinInto(out,W,scl){
 
 /* ================= idle animation ================= */
 const IDLE_LEN=4, IDLE_FPS=24;
-const CLIP_DEFS={idle:{name:'Idle',len:4},walk:{name:'Walk',len:1},run:{name:'Run',len:2/3},wave:{name:'Wave',len:4}};
+const CLIP_DEFS={idle:{name:'Idle',len:4},walk:{name:'Walk',len:1},run:{name:'Run',len:2/3},wave:{name:'Wave',len:4},chat:{name:'Chat',len:4}};
+/* "Chatting": standing, weight on the left leg, turned slightly towards a listener, right hand open
+   and gesturing at chest height, left hand relaxed near the waist, head tilted in. */
+const CHAT_POSE={
+  one:{'thigh.L':[0,0,-2],'shin.L':[1,0,0],'foot.L':[0,6,0],
+       'thigh.R':[-6,0,5],'shin.R':[9,0,0],'foot.R':[-3,-14,0],
+       'upperArm.L':[-14,0,-72],'forearm.L':[0,-62,0],'hand.L':[0,-6,8],'clavicle.L':[0,0,-4],
+       'upperArm.R':[-34,0,60],'forearm.R':[0,74,0],'hand.R':[-24,0,-18],'clavicle.R':[0,0,5]},
+  c:{hips:[0,-6,3],spine:[3,0,-1],chest:[0,-6,-3],neck:[2,0,0],head:[3,-8,-4]}
+};
 /* Full-body locomotion clips, authored procedurally. Local rotations in degrees (Euler XYZ).
    Left leg forward (negative thigh X) pairs with the left arm back (positive upper-arm X). */
 function clipPose(kind,phi,t){
@@ -650,6 +673,24 @@ function clipPose(kind,phi,t){
     E('forearm.R',0,K.bend+K.bendv*Math.max(0,c),0);
     E('clavicle.L',0,0,-4);E('clavicle.R',0,0,4);
     E('spine',K.lean,0,0);E('chest',0,K.ch*c,0);E('hips',0,-K.hp*c,0);E('head',K.hd,-0.5*K.ch*c,0);
+  } else if(kind==='chat'){
+    const base=presetPose(CHAT_POSE);
+    for(let i=0;i<NB;i++) rot[i]=base[i];
+    const w=2*Math.PI*phi;
+    // two incommensurate gesture rhythms that both divide the 4 s loop, so it never looks mechanical
+    const g1=0.6*Math.sin(2*w)+0.4*Math.sin(3*w+1.0);
+    const g2=0.6*Math.sin(3*w+2.2)+0.4*Math.sin(2*w+0.4);
+    const add=(n,x,y,z)=>{const i=BIDX[n];rot[i]=qmul(rot[i],eulerToQ(x,y,z));};
+    add('upperArm.R',7*g1,0,4*g1);
+    add('forearm.R',0,13*g1,0);
+    add('hand.R',10*g2,0,12*g2);
+    add('forearm.L',0,5*g2,0);
+    add('hand.L',0,0,6*g1);
+    add('head',3.5*Math.sin(3*w+0.5)+1.5*g2,4*Math.sin(w),2*Math.sin(2*w));   // nods, small look-around
+    add('chest',0,2.5*Math.sin(w),0);
+    add('hips',0,0,1.2*Math.sin(w+0.8));                                      // gentle weight shift
+    const id=idleAt(t);
+    rot[B.chest]=qmul(rot[B.chest],id.chest);
   } else if(kind==='wave'){
     S('upperArm',-4,0,-74);S('forearm',0,-12,0);S('clavicle',0,0,-4);S('thigh',0,0,-3);S('foot',0,8,0);
     E('hips',0,0,1.5);E('chest',0,0,-1.5);
@@ -675,7 +716,7 @@ function sampleClip(kind,t,baseRot,baseRoot){
   const rot=clipPose(kind,tt/def.len,tt);
   const root=[0,rest[0][1],0];
   root[1]=groundedRootY(rot,root);
-  return {rot,root,blink:kind==='wave'?idleAt(tt).blink:1};
+  return {rot,root,blink:(kind==='wave'||kind==='chat')?idleAt(tt).blink:1};
 }
 const BLINK_STARTS=[1.0,2.75,3.0];
 function idleAt(t){
@@ -797,6 +838,23 @@ const PRESETS=[
   {id:'cheer',label:'Cheering',
     sym:{upperArm:[0,-14,56],forearm:[0,-6,10],clavicle:[0,0,8],thigh:[0,0,5],foot:[0,10,0]},
     c:{head:[-14,0,0],spine:[-5,0,0]}},
+  {id:'technician',label:'Technician',
+    // down on one knee (right), left foot flat in front, leaning in to work on something at knee height
+    one:{'thigh.L':[-90,0,-4],'shin.L':[58,0,0],'foot.L':[32,0,0],
+         'thigh.R':[20,0,5],'shin.R':[82,0,0],'foot.R':[28,0,0],
+         'upperArm.L':[-52,0,-72],'forearm.L':[0,-44,0],'hand.L':[0,0,0],'clavicle.L':[0,0,-2],
+         'upperArm.R':[-46,0,70],'forearm.R':[0,50,0],'hand.R':[0,0,0],'clavicle.R':[0,0,2]},
+    c:{hips:[0,-6,0],spine:[16,0,0],chest:[10,6,0],neck:[8,0,0],head:[14,-4,0]}},
+  {id:'relaxed',label:'Relaxed',
+    // weight on the left leg, right knee soft, arms hanging loosely with a slight bend
+    one:{'thigh.L':[0,0,-2],'shin.L':[1,0,0],'foot.L':[0,6,0],
+         'thigh.R':[-5,0,5],'shin.R':[8,0,0],'foot.R':[-2,-14,0],
+         'upperArm.L':[-5,0,-80],'forearm.L':[0,-16,0],'hand.L':[0,-8,6],
+         'upperArm.R':[-9,0,78],'forearm.R':[0,24,0],'hand.R':[0,6,-5],
+         'clavicle.L':[0,0,-5],'clavicle.R':[0,0,2]},
+    c:{hips:[0,-3,2.5],spine:[1.5,0,-2],chest:[0,3,-3],neck:[1,0,0],head:[0,4,-3]}},
+  {id:'chat',label:'Chatting',
+    one:CHAT_POSE.one,c:CHAT_POSE.c},
   {id:'crouch',label:'Crouching',
     sym:{thigh:[-105,0,10],shin:[125,0,0],foot:[-20,0,0],upperArm:[-50,0,-26],forearm:[0,-35,0],clavicle:[0,0,-3]},
     c:{spine:[32,0,0],head:[-26,0,0]}}
@@ -1012,9 +1070,13 @@ let dirty=true, previewPaused=false;
 function markDirty(){dirty=true;}
 let slotLin=[];
 function updateSlotColors(){
-  slotLin=[toLin(state.skin),toLin(state.hair),toLin(state.eyes),toLin(state.top),toLin(state.bottom),toLin(state.shoes),toLin(state.mouth),toLin('#ffffff')];
+  slotLin=[toLin(state.skin),toLin(state.hair),toLin(state.eyes),toLin(state.top),toLin(state.bottom),toLin(state.shoes),toLin(state.mouth),toLin('#ffffff'),toLin(shade(state.top,0.74))];
 }
-const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#ffffff'];
+function shade(hex,f){
+  const n=parseInt(hex.slice(1),16),c=k=>Math.max(0,Math.min(255,Math.round(((n>>k)&255)*f)));
+  return '#'+[c(16),c(8),c(0)].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#ffffff',shade(state.top,0.74)];
 let bodyData=null,bodyCount=0;
 function displayPose(now){
   if(view.clip&&!previewPaused&&!drag){
@@ -1443,7 +1505,7 @@ async function paletteFromState(){
   const x=c.getContext('2d');
   slotHex().forEach((h,i)=>{x.fillStyle=h;x.fillRect((i%4)*4,Math.floor(i/4)*4,4,4);});
   x.fillStyle='#ff00ff';
-  for(let i=8;i<16;i++)x.fillRect((i%4)*4,Math.floor(i/4)*4,4,4);
+  for(let i=slotHex().length;i<16;i++)x.fillRect((i%4)*4,Math.floor(i/4)*4,4,4);
   const blob=await new Promise(r=>c.toBlob(r,'image/png'));
   return new Uint8Array(await blob.arrayBuffer());
 }
@@ -1585,8 +1647,8 @@ function scheduleSize(){
     }catch(err){$('sizeInfo').textContent='Size unavailable: '+err.message;}
   },250);
 }
-const animKinds=()=>['Idle','Walk','Run','Wave'].filter(k=>$('exp'+k).checked).map(k=>k.toLowerCase());
-['Idle','Walk','Run','Wave'].forEach(k=>{$('exp'+k).onchange=scheduleSize;});
+const animKinds=()=>['Idle','Walk','Run','Wave','Chat'].filter(k=>$('exp'+k).checked).map(k=>k.toLowerCase());
+['Idle','Walk','Run','Wave','Chat'].forEach(k=>{$('exp'+k).onchange=scheduleSize;});
 $('export').onclick=async()=>{
   try{
     const g=await buildGLB(animKinds());
@@ -1616,7 +1678,7 @@ function loop(now){
 requestAnimationFrame(loop);
 
 // expose for testing
-window.__PM={setMode:m=>setMode(m),get selBone(){return selBone;},setClipFrame:(k,t)=>{const c=sampleClip(k,t,pose.rot,pose.root);pose.rot=c.rot;pose.root=c.root;anim=null;},render:()=>render(performance.now()),state,pose,mesh:()=>mesh,buildGLB,applyPreset,PRESETS,B,BONE_NAMES,get W(){return W;},cam,rebuildBody,computeWorld,rest:()=>rest,restWorld:()=>restWorld,HANDLES,skinInto,groundedRootY};
+window.__PM={eulerToQ,BIDX,setMode:m=>setMode(m),get selBone(){return selBone;},setClipFrame:(k,t)=>{const c=sampleClip(k,t,pose.rot,pose.root);pose.rot=c.rot;pose.root=c.root;anim=null;},render:()=>render(performance.now()),state,pose,mesh:()=>mesh,buildGLB,applyPreset,PRESETS,B,BONE_NAMES,get W(){return W;},cam,rebuildBody,computeWorld,rest:()=>rest,restWorld:()=>restWorld,HANDLES,skinInto,groundedRootY};
 })();
 </script>
 </body>
