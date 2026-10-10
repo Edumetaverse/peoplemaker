@@ -1,9 +1,15 @@
 # EDUmetaverse People Maker
 
-A single-file, offline low-poly person generator. Pose with draggable joints, pick a preset,
-choose male/female, hair, clothing colours and an EDUmetaverse shirt logo, then export a
-rigged, skinned GLB (about 0.2 MB, limit 1 MB) with an optional looping idle animation.
+Single-file, offline low-poly person generator for building characters for worlds.
 
-Open `index.html` in any modern browser. No build step, no dependencies.
+- **index.html** – the People Maker. Pose with draggable joints (IK), pick a preset, male/female,
+  12 hair styles, clothing colours and an EDUmetaverse shirt logo, then export a rigged, skinned GLB
+  (about 0.3 MB, limit 1 MB) with optional **Idle, Walk, Run and Wave** animation clips.
+- **viewer.html** – the Character Viewer, built on the [PlayCanvas engine](https://github.com/playcanvas/engine).
+  Drop in a GLB to check it in a second engine: triangles, skin joints, size, clip list, and
+  crossfaded idle / walk / run playback.
 
-`edumetaverse_logo_atlas.png` is the logo texture embedded in the page, kept here for reference.
+Open either file in a modern browser. No build step. `viewer.html` loads the bundled engine from `vendor/`
+(PlayCanvas v2.22.4, MIT licence in `vendor/PLAYCANVAS_LICENSE.txt`).
+
+`edumetaverse_logo_atlas.png` is the logo texture embedded in the maker, kept here for reference.

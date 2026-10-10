@@ -135,7 +135,14 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
     <label class="chk"><input type="checkbox" id="pin" checked> Keep feet planted when moving hips</label>
     <label class="chk"><input type="checkbox" id="showJ" checked> Show joints</label>
     <label class="chk"><input type="checkbox" id="chair"> Show chair (preview only)</label>
-    <label class="chk"><input type="checkbox" id="idlePrev"> Preview idle (breathing + blink)</label>
+    <label class="lbl">Preview animation</label>
+    <select id="clipPrev">
+      <option value="none">None (pose only)</option>
+      <option value="idle">Idle (breathing + blink)</option>
+      <option value="walk">Walk</option>
+      <option value="run">Run</option>
+      <option value="wave">Wave</option>
+    </select>
 
     <h2>View</h2>
     <div class="grid2">
@@ -146,7 +153,11 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
     <h2>Export</h2>
     <label class="lbl">File name</label>
     <input type="text" id="fname" value="EDUmetaverse_person">
-    <label class="chk"><input type="checkbox" id="expAnim" checked> Include idle animation (breathing + blink)</label>
+    <div class="lbl">Animation clips to include</div>
+    <label class="chk"><input type="checkbox" id="expIdle" checked> Idle (your pose, breathing + blink)</label>
+    <label class="chk"><input type="checkbox" id="expWalk" checked> Walk cycle</label>
+    <label class="chk"><input type="checkbox" id="expRun" checked> Run cycle</label>
+    <label class="chk"><input type="checkbox" id="expWave"> Wave</label>
     <div style="margin-top:10px"><button class="primary" id="export">Export GLB</button></div>
     <div class="size" id="sizeInfo">Calculating size&hellip;</div>
     <div class="bar"><i id="sizeBar"></i></div>
@@ -471,7 +482,7 @@ function buildMesh(gender,style){
     const sleeveRings=noneS?0:(longS?6:4); // rings idx < this are sleeve (band colour = top)
     const spec=[ // d, r, weights
       [-.04,.056,W1(cl)],[0,.058,W2(cl,up)],[.10,.056,W1(up)],[.20,.052,W1(up)],
-      [.29,.046,W2(up,fo)],[.38,.047,W1(fo)],[.50,.035,W1(fo)],[.55,.032,W2(fo,ha)]
+      [.29,.046,W2(up,fo)],[.38,.047,W1(fo)],[.50,.034,W1(fo)],[.55,.029,W2(fo,ha)]
     ];
     const rings=spec.map((s,i)=>{
       const sleeve=i<sleeveRings, bulge=sleeve?1.08:1;
@@ -484,8 +495,11 @@ function buildMesh(gender,style){
     loft([rX(sd*(sx-.04),SHY,.056*cb,.056*cb,W1(cl),sleeveRings>0?S.top:S.skin),
           rX(sd*(sx-.02),SHY,.057*cb,.057*cb,W1(cl),sleeveRings>0?S.top:S.skin)],{capEnd:false});
     // hand
-    const h=[[.55,.022,.034],[.60,.022,.046],[.68,.018,.040],[.73,.012,.022]];
-    loft(h.map(e=>rX(sd*(sx+e[0]),SHY,e[1],e[2],W1(ha),S.skin)));
+    const hsz=F?.92:1;
+    const palm=[[0,.016,.027],[.040,.016,.035],[.085,.014,.038],[.125,.011,.034],[.168,.008,.022]]; // d, half-thick, half-wide
+    loft(palm.map(e=>rX(sd*(sx+.55+e[0]*hsz),SHY,e[1]*hsz,e[2]*hsz,W1(ha),S.skin)));
+    const thumb=[[.030,.030,.013],[.055,.046,.011],[.085,.056,.008]]; // d, forward offset, radius
+    loft(thumb.map(e=>({c:[sd*(sx+.55+e[0]*hsz),SHY-.004,e[1]*hsz],U:[0,e[2]*hsz,0],V:[0,0,e[2]*hsz],w:W1(ha),slot:S.skin})),{n:6});
   });
 
   /* ---- legs ---- */
@@ -509,8 +523,11 @@ function buildMesh(gender,style){
     });
     loft(rings,{capStart:false});
     // shoe
-    const f=[[-.07,.045,.037,.042],[.04,.042,.043,.042],[.14,.033,.045,.032],[.22,.025,.034,.022]];
-    loft(f.map(e=>rZ(cx,e[1],e[0],e[2],e[3],W1(ft),S.shoes)));
+    const fsz=F?.93:1;
+    const shoe=[[-.050,.032,.040],[-.010,.037,.045],[.050,.040,.037],[.110,.041,.026],[.160,.036,.020],[.190,.026,.016]]; // z, half-wide, half-high
+    loft(shoe.map(e=>rZ(cx,e[2]+.012,e[0]*fsz,e[1]*fsz,e[2],W1(ft),S.shoes)));
+    const sole=[[-.055,.034],[-.010,.039],[.050,.042],[.110,.043],[.165,.038],[.195,.027]];
+    loft(sole.map(e=>rZ(cx,.008,e[0]*fsz,e[1]*fsz,.008,W1(ft),S.sole)));
   });
 
   // uniform height scale
@@ -527,7 +544,7 @@ const state={
   sleeve:'short', top:'#2f7de1', legs:'long', bottom:'#2b3140', shoes:'#e9e9ee',
   eyes:'#14151c', mouth:'#a85a52'
 };
-const view={chair:false,pin:true,joints:true,idle:false};
+const view={chair:false,pin:true,joints:true,clip:null};
 
 let G=GENDERS.male, rest=restOffsets(G), mesh=null, restWorld=null;
 let pose={rot:Array.from({length:NB},()=>[0,0,0,1]),root:[0,.92,0]};
@@ -580,6 +597,61 @@ function skinInto(out,W,scl){
 
 /* ================= idle animation ================= */
 const IDLE_LEN=4, IDLE_FPS=24;
+const CLIP_DEFS={idle:{name:'Idle',len:4},walk:{name:'Walk',len:1},run:{name:'Run',len:2/3},wave:{name:'Wave',len:4}};
+/* Full-body locomotion clips, authored procedurally. Local rotations in degrees (Euler XYZ).
+   Left leg forward (negative thigh X) pairs with the left arm back (positive upper-arm X). */
+function clipPose(kind,phi,t){
+  const rot=Array.from({length:NB},()=>[0,0,0,1]);
+  const E=(n,x,y,z)=>{rot[BIDX[n]]=eulerToQ(x,y,z);};
+  const S=(n,x,y,z)=>{E(n+'.L',x,y,z);E(n+'.R',x,-y,-z);};
+  const sm=u=>u*u*(3-2*u);
+  if(kind==='walk'||kind==='run'){
+    const run=kind==='run', c=Math.cos(2*Math.PI*phi);
+    const K=run?{off:-8,amp:38,kn0:14,kn1:78,w0:-5,w1:20,arm:40,arz:64,bend:88,bendv:8,lean:14,ch:12,hp:8,hd:-10}
+               :{off:2,amp:23,kn0:6,kn1:36,w0:-10,w1:25,arm:22,arz:74,bend:12,bendv:14,lean:4,ch:8,hp:5,hd:0};
+    for(const side of [0,1]){
+      const ph=(phi+side*0.5)%1;
+      const th=K.off-K.amp*Math.cos(2*Math.PI*ph);
+      const sw=Math.max(0,Math.sin(2*Math.PI*(ph-0.5)));
+      const kn=K.kn0+K.kn1*Math.pow(sw,run?1.1:1.2);
+      const wf=ph<0.5?K.w0+(K.w1-K.w0)*Math.pow(ph/0.5,2):K.w1+(K.w0-K.w1)*sm((ph-0.5)/0.5);
+      const sd=side===0?'L':'R';
+      E('thigh.'+sd,th,0,side===0?-2:2);
+      E('shin.'+sd,kn,0,0);
+      E('foot.'+sd,wf-(th+kn),side===0?6:-6,0);
+    }
+    E('upperArm.L',K.arm*c,0,-K.arz);E('upperArm.R',-K.arm*c,0,K.arz);
+    E('forearm.L',0,-(K.bend+K.bendv*Math.max(0,-c)),0);
+    E('forearm.R',0,K.bend+K.bendv*Math.max(0,c),0);
+    E('clavicle.L',0,0,-4);E('clavicle.R',0,0,4);
+    E('spine',K.lean,0,0);E('chest',0,K.ch*c,0);E('hips',0,-K.hp*c,0);E('head',K.hd,-0.5*K.ch*c,0);
+  } else if(kind==='wave'){
+    S('upperArm',-4,0,-74);S('forearm',0,-12,0);S('clavicle',0,0,-4);S('thigh',0,0,-3);S('foot',0,8,0);
+    E('hips',0,0,1.5);E('chest',0,0,-1.5);
+    const o=Math.sin(2*Math.PI*4*phi);
+    E('upperArm.R',0,0,-62);E('clavicle.R',0,0,-12);
+    E('forearm.R',-22,0,-48+16*o);E('hand.R',0,0,12+10*o);
+    E('head',0,0,-6);
+    const id=idleAt(t);
+    rot[B.chest]=qmul(rot[B.chest],id.chest);
+    rot[B.head]=qmul(rot[B.head],id.head);
+  }
+  return rot;
+}
+/* One sample of a clip: {rot[], root, blink}. 'idle' animates the user's own pose. */
+function sampleClip(kind,t,baseRot,baseRoot){
+  const def=CLIP_DEFS[kind], tt=t%def.len;
+  if(kind==='idle'){
+    const id=idleAt(tt), rot=baseRot.map(q=>q);
+    rot[B.chest]=qmul(baseRot[B.chest],id.chest);
+    rot[B.head]=qmul(baseRot[B.head],id.head);
+    return {rot,root:baseRoot.slice(),blink:id.blink};
+  }
+  const rot=clipPose(kind,tt/def.len,tt);
+  const root=[0,rest[0][1],0];
+  root[1]=groundedRootY(rot,root);
+  return {rot,root,blink:kind==='wave'?idleAt(tt).blink:1};
+}
 const BLINK_STARTS=[1.0,2.75,3.0];
 function idleAt(t){
   const b=0.5-0.5*Math.cos(2*Math.PI*t/IDLE_LEN);
@@ -656,10 +728,10 @@ const HANDLES=[];
     add({id:'sho'+s,label:nm+' shoulder — drag to shrug / roll',kind:'swing',bone:cl,tipBone:up,sel:cl,side:sd});
     add({id:'elb'+s,label:nm+' elbow — drag to swing the arm',kind:'swing',bone:up,tipBone:fo,sel:up,side:sd});
     add({id:'wri'+s,label:nm+' hand — drag to reach (IK)',kind:'ik',ik:'wrist'+s,bone:ha,sel:fo,side:sd});
-    add({id:'hnd'+s,label:nm+' fingertips — drag to rotate the hand',kind:'swing',bone:ha,tip:[sd*.18*G.K,0,0],sel:ha,side:sd});
+    add({id:'hnd'+s,label:nm+' fingertips — drag to rotate the hand',kind:'swing',bone:ha,tip:[sd*.17*G.K,0,0],sel:ha,side:sd});
     add({id:'kne'+s,label:nm+' knee — drag to swing the thigh',kind:'swing',bone:th,tipBone:sh,sel:th,side:sd});
     add({id:'ank'+s,label:nm+' foot — drag to move the leg (IK)',kind:'ik',ik:'ankle'+s,bone:ft,sel:sh,side:sd});
-    add({id:'toe'+s,label:nm+' toes — drag to flex the foot',kind:'swing',bone:ft,tip:[0,-.06*G.K,.22*G.K],sel:ft,side:sd});
+    add({id:'toe'+s,label:nm+' toes — drag to flex the foot',kind:'swing',bone:ft,tip:[0,-.06*G.K,.17*G.K],sel:ft,side:sd});
   });
 })();
 function handleTip(h){ return h.tipBone!==undefined?rest[h.tipBone]:h.tip; }
@@ -920,20 +992,17 @@ function updateSlotColors(){
 const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#f0f0f0'];
 let bodyData=null,bodyCount=0;
 function displayPose(now){
-  if(view.idle&&!previewPaused&&!drag){
-    const id=idleAt((now/1000)%IDLE_LEN);
-    const rot=pose.rot.map(q=>q);
-    rot[B.chest]=qmul(pose.rot[B.chest],id.chest);
-    rot[B.head]=qmul(pose.rot[B.head],id.head);
+  if(view.clip&&!previewPaused&&!drag){
+    const sc=sampleClip(view.clip,now/1000,pose.rot,pose.root);
     const scl=Array.from({length:NB},()=>[1,1,1]);
-    scl[B.eyeL]=[1,id.blink,1];scl[B.eyeR]=[1,id.blink,1];
-    return {rot,scl};
+    scl[B.eyeL]=[1,sc.blink,1];scl[B.eyeR]=[1,sc.blink,1];
+    return {rot:sc.rot,scl,root:sc.root};
   }
-  return {rot:pose.rot,scl:null};
+  return {rot:pose.rot,scl:null,root:pose.root};
 }
 function render(now){
   const dp=displayPose(now);
-  const Wd=computeWorld(dp.rot,pose.root,rest);
+  const Wd=computeWorld(dp.rot,dp.root,rest);
   W=(dp.rot===pose.rot)?Wd:W;           // IK always works on the base pose
   if(dp.rot===pose.rot) W=Wd;
   window.__Wdisp=Wd;
@@ -1072,6 +1141,7 @@ ovc.addEventListener('pointerdown',e=>{
   const m=mpos(e);
   const h=e.button===0?pickHandle(m):null;
   if(h){
+    if(view.clip){view.clip=null;$('clipPrev').value='none';}
     anim=null;previewPaused=true;
     pushUndo();
     // work from the base pose
@@ -1229,7 +1299,7 @@ $('ground').onclick=()=>{pushUndo();anim=null;pose.root[1]=groundedRootY(pose.ro
 $('pin').onchange=e=>{view.pin=e.target.checked;};
 $('showJ').onchange=e=>{view.joints=e.target.checked;markDirty();};
 chairEl.onchange=e=>{view.chair=e.target.checked;markDirty();};
-$('idlePrev').onchange=e=>{view.idle=e.target.checked;markDirty();};
+$('clipPrev').onchange=e=>{view.clip=e.target.value==='none'?null:e.target.value;markDirty();};
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
   const v=b.dataset.view;
   cam.target=[0,.86*G.K,0];
@@ -1323,30 +1393,41 @@ async function buildGLB(includeAnim){
     materials,textures,samplers,images,
     accessors,bufferViews:views
   };
-  if(includeAnim){
-    const FR=IDLE_LEN*IDLE_FPS, nK=FR+1;
-    const times=new Float32Array(nK),chest=new Float32Array(nK*4),head=new Float32Array(nK*4),eye=new Float32Array(nK*3);
-    for(let f=0;f<nK;f++){
-      const t=f/IDLE_FPS,id=idleAt(t);
-      times[f]=t;
-      chest.set(qmul(rotP[B.chest],id.chest),f*4);
-      head.set(qmul(rotP[B.head],id.head),f*4);
-      eye.set([1,id.blink,1],f*3);
+  const kinds=Array.isArray(includeAnim)?includeAnim:(includeAnim?['idle']:[]);
+  if(kinds.length){
+    gltf.animations=[];
+    for(const kind of kinds){
+      const def=CLIP_DEFS[kind], nK=Math.round(def.len*IDLE_FPS)+1;
+      const frames=[];
+      for(let f=0;f<nK-1;f++) frames.push(sampleClip(kind,f/IDLE_FPS,rotP,rootP));
+      frames.push(frames[0]);                       // exact loop: last key == first key
+      const tFull=new Float32Array(nK);for(let f=0;f<nK;f++)tFull[f]=f/IDLE_FPS;
+      tFull[nK-1]=def.len;
+      const aFull=addAcc(addView(new Uint8Array(tFull.buffer)),5126,nK,'SCALAR',{min:[0],max:[def.len]});
+      const aEnd=addAcc(addView(new Uint8Array(new Float32Array([0,def.len]).buffer)),5126,2,'SCALAR',{min:[0],max:[def.len]});
+      const samplers=[],channels=[];
+      const addTrack=(node,path,n,get)=>{
+        let vals=frames.map(get);
+        if(n===4) for(let f=1;f<vals.length;f++){            // keep quaternions on one hemisphere
+          const a=vals[f-1],q=vals[f];
+          if(a[0]*q[0]+a[1]*q[1]+a[2]*q[2]+a[3]*q[3]<0) vals[f]=q.map(x=>-x);
+        }
+        const v0=vals[0];
+        let varying=false;
+        for(let f=1;f<vals.length&&!varying;f++) for(let j=0;j<n;j++) if(Math.abs(vals[f][j]-v0[j])>1e-5){varying=true;break;}
+        const keys=varying?nK:2, arr=new Float32Array(keys*n);
+        if(varying) vals.forEach((v,f)=>arr.set(v,f*n)); else {arr.set(v0,0);arr.set(v0,n);}
+        const acc=addAcc(addView(new Uint8Array(arr.buffer)),5126,keys,n===4?'VEC4':'VEC3');
+        samplers.push({input:varying?aFull:aEnd,output:acc,interpolation:'LINEAR'});
+        channels.push({sampler:samplers.length-1,target:{node,path}});
+      };
+      // every clip drives every bone, so switching clips can never leave a bone stuck in the previous pose
+      for(let i=0;i<NB;i++) addTrack(i+2,'rotation',4,fr=>fr.rot[i]);
+      addTrack(2,'translation',3,fr=>fr.root);
+      addTrack(B.eyeL+2,'scale',3,fr=>[1,fr.blink,1]);
+      addTrack(B.eyeR+2,'scale',3,fr=>[1,fr.blink,1]);
+      gltf.animations.push({name:def.name,samplers,channels});
     }
-    // loop exactness: last key = first key
-    chest.copyWithin((nK-1)*4,0,4);head.copyWithin((nK-1)*4,0,4);
-    const aT=addAcc(addView(new Uint8Array(times.buffer)),5126,nK,'SCALAR',{min:[0],max:[times[nK-1]]});
-    const aC=addAcc(addView(new Uint8Array(chest.buffer)),5126,nK,'VEC4');
-    const aH=addAcc(addView(new Uint8Array(head.buffer)),5126,nK,'VEC4');
-    const aE=addAcc(addView(new Uint8Array(eye.buffer)),5126,nK,'VEC3');
-    gltf.animations=[{name:'Idle',samplers:[
-      {input:aT,output:aC,interpolation:'LINEAR'},{input:aT,output:aH,interpolation:'LINEAR'},
-      {input:aT,output:aE,interpolation:'LINEAR'},{input:aT,output:aE,interpolation:'LINEAR'}],
-      channels:[
-        {sampler:0,target:{node:B.chest+2,path:'rotation'}},
-        {sampler:1,target:{node:B.head+2,path:'rotation'}},
-        {sampler:2,target:{node:B.eyeL+2,path:'scale'}},
-        {sampler:3,target:{node:B.eyeR+2,path:'scale'}}]}];
   }
   gltf.buffers=[{byteLength:byteOff}];
   const jsonStr=JSON.stringify(gltf);
@@ -1366,17 +1447,18 @@ function scheduleSize(){
   clearTimeout(sizeTimer);
   sizeTimer=setTimeout(async()=>{
     try{
-      const g=await buildGLB($('expAnim').checked);
+      const g=await buildGLB(animKinds());
       const kb=g.byteLength/1024;
       $('sizeInfo').textContent=`File size: ${kb.toFixed(0)} KB of 1024 KB limit · ${mesh.tris.length+mesh.logoTris.length} triangles · ${mesh.verts.length} vertices`;
       $('sizeBar').style.width=Math.min(100,g.byteLength/1048576*100)+'%';
     }catch(err){$('sizeInfo').textContent='Size unavailable: '+err.message;}
   },250);
 }
-$('expAnim').onchange=scheduleSize;
+const animKinds=()=>['Idle','Walk','Run','Wave'].filter(k=>$('exp'+k).checked).map(k=>k.toLowerCase());
+['Idle','Walk','Run','Wave'].forEach(k=>{$('exp'+k).onchange=scheduleSize;});
 $('export').onclick=async()=>{
   try{
-    const g=await buildGLB($('expAnim').checked);
+    const g=await buildGLB(animKinds());
     if(g.byteLength>=1048576){toast('Export blocked: file is over 1 MB');return;}
     const name=($('fname').value||'EDUmetaverse_person').replace(/[^\w\-\. ]+/g,'_').replace(/\.glb$/i,'');
     const blob=new Blob([g],{type:'model/gltf-binary'});
@@ -1397,13 +1479,13 @@ resize();
 scheduleSize();
 function loop(now){
   const a=stepAnim(now);
-  if(dirty||a||(view.idle&&!previewPaused&&!drag)){dirty=false;render(now);}
+  if(dirty||a||(view.clip&&!previewPaused&&!drag)){dirty=false;render(now);}
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
 // expose for testing
-window.__PM={render:()=>render(performance.now()),state,pose,mesh:()=>mesh,buildGLB,applyPreset,PRESETS,B,BONE_NAMES,get W(){return W;},cam,rebuildBody,computeWorld,rest:()=>rest,restWorld:()=>restWorld,HANDLES,skinInto,groundedRootY};
+window.__PM={setClipFrame:(k,t)=>{const c=sampleClip(k,t,pose.rot,pose.root);pose.rot=c.rot;pose.root=c.root;anim=null;},render:()=>render(performance.now()),state,pose,mesh:()=>mesh,buildGLB,applyPreset,PRESETS,B,BONE_NAMES,get W(){return W;},cam,rebuildBody,computeWorld,rest:()=>rest,restWorld:()=>restWorld,HANDLES,skinInto,groundedRootY};
 })();
 </script>
 </body>
