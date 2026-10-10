@@ -118,10 +118,14 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
     <canvas id="ov"></canvas>
     <div class="tip" id="tip"></div>
     <div class="toast" id="toast"></div>
-    <div class="hint">Drag the dots to pose &middot; drag empty space to orbit &middot; right-drag to pan &middot; scroll to zoom &middot; Ctrl+Z undo</div>
+    <div class="hint" id="hintText">Drag the dots to pose &middot; drag empty space to orbit &middot; right-drag to pan &middot; scroll to zoom &middot; Ctrl+Z undo</div>
   </section>
 
   <aside class="panel right">
+    <h2>Drag mode</h2>
+    <div class="seg" id="dragMode"><button data-v="move" class="on">Move / reach</button><button data-v="rotate">Rotate</button></div>
+    <div class="size" id="modeNote">Move: drag the dots to reach and swing limbs. Press R for Rotate.</div>
+
     <h2>Selected joint</h2>
     <select id="boneSel"></select>
     <div class="sl"><span>X</span><input type="range" id="rx" min="-180" max="180" step="1" value="0"><output id="rxo">0</output></div>
@@ -544,7 +548,7 @@ const state={
   sleeve:'short', top:'#2f7de1', legs:'long', bottom:'#2b3140', shoes:'#e9e9ee',
   eyes:'#14151c', mouth:'#a85a52'
 };
-const view={chair:false,pin:true,joints:true,clip:null};
+const view={chair:false,pin:true,joints:true,clip:null,mode:'move'};
 
 let G=GENDERS.male, rest=restOffsets(G), mesh=null, restWorld=null;
 let pose={rot:Array.from({length:NB},()=>[0,0,0,1]),root:[0,.92,0]};
@@ -1076,7 +1080,73 @@ function render(now){
 
 /* ---- overlay ---- */
 const HCOL={0:'#5eead4','1':'#3aa7ff','-1':'#ffb454'};
-let hoverH=null;
+let hoverH=null, hoverRing=-1;
+/* ---- rotation gizmo: three rings around the selected joint, in its parent's frame
+   (the same X / Y / Z the sliders use) ---- */
+const AXV=[[1,0,0],[0,1,0],[0,0,1]], AXC=['#ff5a5a','#5be37a','#5aa7ff'], AXN=['X','Y','Z'];
+function ringBasis(i,Qp){return {d:qrot(Qp,AXV[i]),u:qrot(Qp,AXV[(i+1)%3]),v:qrot(Qp,AXV[(i+2)%3])};}
+function gizmoFrame(Wd){const p=PARENT[selBone];return {o:Wd.P[selBone],Qp:p<0?[0,0,0,1]:Wd.Q[p],r:.11*G.K};}
+function ringPoint(g,b,a){return v3.add(g.o,v3.mul(v3.add(v3.mul(b.u,Math.cos(a)),v3.mul(b.v,Math.sin(a))),g.r));}
+function segDist2(p,a,b){
+  const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy;
+  let t=l?((p.x-a.x)*dx+(p.y-a.y)*dy)/l:0;t=clamp(t,0,1);
+  const x=a.x+dx*t-p.x,y=a.y+dy*t-p.y;return x*x+y*y;
+}
+function pickRing(m,cb,Wd){
+  if(view.mode!=='rotate'||view.clip||!Wd) return -1;
+  const g=gizmoFrame(Wd);let best=-1,bd=10*10;
+  for(let i=0;i<3;i++){
+    const b=ringBasis(i,g.Qp);let prev=null;
+    for(let k=0;k<=48;k++){
+      const s=project(ringPoint(g,b,k/48*2*Math.PI),cb);
+      if(s&&prev){const d2=segDist2(m,prev,s);if(d2<bd){bd=d2;best=i;}}
+      prev=s;
+    }
+  }
+  return best;
+}
+// the bone a joint dot turns in Rotate mode = the bone that starts at that dot
+function rotBoneOf(h){
+  if(h.kind==='root') return B.hips;
+  if(h.kind==='ik') return h.bone;
+  return h.tipBone!==undefined?h.tipBone:h.bone;
+}
+function ringAngle(d,m){
+  const ray=mouseRay(m.x,m.y,d.cb),den=v3.dot(ray.d,d.b.d);
+  if(Math.abs(den)<0.12) return null;                       // ring edge-on: fall back to linear drag
+  const t=v3.dot(v3.sub(d.g.o,ray.o),d.b.d)/den,hit=v3.add(ray.o,v3.mul(ray.d,t)),vec=v3.sub(hit,d.g.o);
+  return Math.atan2(v3.dot(vec,d.b.v),v3.dot(vec,d.b.u));
+}
+function startRotateDrag(m,ring,h,cb){
+  if(view.clip){view.clip=null;$('clipPrev').value='none';}
+  anim=null;previewPaused=true;pushUndo();refreshWorld();
+  if(ring>=0){
+    const g=gizmoFrame(W),b=ringBasis(ring,g.Qp);
+    const d={type:'ring',axis:ring,g,b,cb,lx:m.x,ly:m.y,q0:pose.rot[selBone].slice(),acc:0,prev:null,moved:false};
+    d.prev=ringAngle(d,m);drag=d;
+  } else {
+    const rb=rotBoneOf(h);setSelected(rb);
+    const p=PARENT[rb];
+    drag={type:'ball',bone:rb,cb,x:m.x,y:m.y,q0:pose.rot[rb].slice(),Qw0:W.Q[rb].slice(),Qp0:p<0?[0,0,0,1]:W.Q[p].slice(),moved:false,h};
+  }
+}
+function rotateDragMove(m){
+  const d=drag;d.moved=true;
+  if(d.type==='ring'){
+    const a=ringAngle(d,m),dx=m.x-d.lx,dy=m.y-d.ly;d.lx=m.x;d.ly=m.y;
+    if(a===null){d.acc+=(dx+dy)*0.012;d.prev=null;}
+    else{
+      if(d.prev!==null){let df=a-d.prev;while(df>Math.PI)df-=2*Math.PI;while(df<-Math.PI)df+=2*Math.PI;d.acc+=df;}
+      d.prev=a;
+    }
+    pose.rot[selBone]=qnorm(qmul(qAxis(AXV[d.axis],d.acc),d.q0));
+  } else {
+    const ax=(m.x-d.x)*0.012,ay=(m.y-d.y)*0.012;
+    const dq=qmul(qAxis(d.cb.u,ax),qAxis(d.cb.r,ay));        // drag right = turn about the screen's up axis
+    pose.rot[d.bone]=qnorm(qmul(qinv(d.Qp0),qmul(dq,d.Qw0)));
+  }
+  syncSliders();markDirty();
+}
 function drawOverlay(cb,Wd){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,cw,ch);
@@ -1092,6 +1162,20 @@ function drawOverlay(cb,Wd){
     const t=project(tipW,cb);
     if(o&&t){ctx.strokeStyle='rgba(94,234,212,.95)';ctx.lineWidth=4;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(o.x,o.y);ctx.lineTo(t.x,t.y);ctx.stroke();
       ctx.fillStyle='#5eead4';ctx.beginPath();ctx.arc(o.x,o.y,5,0,7);ctx.fill();}
+  }
+  if(view.mode==='rotate'&&!view.clip){
+    const g=gizmoFrame(Wd);
+    for(let i=0;i<3;i++){
+      const b=ringBasis(i,g.Qp);
+      const act=(drag&&drag.type==='ring'&&drag.axis===i)||hoverRing===i;
+      ctx.beginPath();let on=false;
+      for(let k=0;k<=64;k++){
+        const s=project(ringPoint(g,b,k/64*2*Math.PI),cb);
+        if(!s){on=false;continue;}
+        if(!on){ctx.moveTo(s.x,s.y);on=true;}else ctx.lineTo(s.x,s.y);
+      }
+      ctx.lineWidth=act?5:3;ctx.strokeStyle=AXC[i];ctx.globalAlpha=act?1:.85;ctx.lineCap='round';ctx.stroke();ctx.globalAlpha=1;
+    }
   }
   if(!showJ) return;
   // skeleton lines
@@ -1135,10 +1219,14 @@ function planeHit(m,P0,cb){
 }
 ovc.addEventListener('contextmenu',e=>e.preventDefault());
 ovc.addEventListener('pointerdown',e=>{
-  ovc.setPointerCapture(e.pointerId);
+  try{ovc.setPointerCapture(e.pointerId);}catch(err){}
   pointers.set(e.pointerId,mpos(e));
   if(pointers.size===2){drag={type:'pinch',d0:pinchDist(),dist0:cam.dist};return;}
   const m=mpos(e);
+  if(view.mode==='rotate'&&e.button===0&&!e.shiftKey){
+    const cb0=camBasis(),ring=pickRing(m,cb0,window.__Wdisp),hh=ring>=0?null:pickHandle(m);
+    if(ring>=0||hh){startRotateDrag(m,ring,hh,cb0);ovc.style.cursor='grabbing';return;}
+  }
   const h=e.button===0?pickHandle(m):null;
   if(h){
     if(view.clip){view.clip=null;$('clipPrev').value='none';}
@@ -1162,10 +1250,14 @@ ovc.addEventListener('pointermove',e=>{
   const m=mpos(e);
   if(pointers.has(e.pointerId)) pointers.set(e.pointerId,m);
   if(!drag){
-    const h=pickHandle(m);
-    if(h!==hoverH){hoverH=h;markDirty();}
-    ovc.style.cursor=h?'pointer':'grab';
-    if(h){tipEl.style.display='block';tipEl.textContent=h.label;tipEl.style.left=m.x+'px';tipEl.style.top=m.y+'px';}
+    const ring=pickRing(m,camBasis(),window.__Wdisp);
+    const h=ring>=0?null:pickHandle(m);
+    if(h!==hoverH||ring!==hoverRing){hoverH=h;hoverRing=ring;markDirty();}
+    ovc.style.cursor=(h||ring>=0)?'pointer':'grab';
+    let label=null;
+    if(ring>=0) label='Turn '+FRIENDLY[selBone]+' around '+AXN[ring];
+    else if(h) label=view.mode==='rotate'?('Rotate '+FRIENDLY[rotBoneOf(h)]+' - drag to turn freely'):h.label;
+    if(label){tipEl.style.display='block';tipEl.textContent=label;tipEl.style.left=m.x+'px';tipEl.style.top=m.y+'px';}
     else tipEl.style.display='none';
     return;
   }
@@ -1179,6 +1271,8 @@ ovc.addEventListener('pointermove',e=>{
     const cb=camBasis(),k=cam.dist*Math.tan(cam.fov/2)*2/ch;
     cam.target=v3.add(drag.target,v3.add(v3.mul(cb.r,-(m.x-drag.x)*k),v3.mul(cb.u,(m.y-drag.y)*k)));
     markDirty();
+  } else if(drag.type==='ring'||drag.type==='ball'){
+    rotateDragMove(m);
   } else if(drag.type==='handle'){
     drag.moved=true;
     const h=drag.h,T=v3.add(planeHit(m,drag.P0,drag.cb),drag.off);
@@ -1202,8 +1296,9 @@ ovc.addEventListener('pointermove',e=>{
 });
 function endDrag(e){
   pointers.delete(e.pointerId);
-  if(drag&&drag.type==='handle'&&!drag.moved) undoStack.pop();
-  if(drag&&drag.type==='handle'&&drag.moved) scheduleSize();
+  const editing=drag&&(drag.type==='handle'||drag.type==='ring'||drag.type==='ball');
+  if(editing&&!drag.moved) undoStack.pop();
+  if(editing&&drag.moved) scheduleSize();
   if(drag&&drag.type==='pinch'&&pointers.size<2) drag=null;
   else if(!(drag&&drag.type==='pinch')) drag=null;
   previewPaused=false;
@@ -1217,6 +1312,8 @@ window.addEventListener('keydown',e=>{
   if(e.target&&['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)&&e.target.type!=='range'&&e.target.type!=='checkbox')return;
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?doRedo():doUndo();}
   else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();doRedo();}
+  else if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.toLowerCase()==='r'){setMode('rotate');}
+  else if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.toLowerCase()==='m'){setMode('move');}
 });
 
 /* ================= UI ================= */
@@ -1290,6 +1387,19 @@ sl.forEach(s=>{
 });
 $('resetBone').onclick=()=>{pushUndo();pose.rot[selBone]=[0,0,0,1];syncSliders();markDirty();scheduleSize();};
 $('undo').onclick=doUndo;$('redo').onclick=doRedo;
+const HINT_MOVE=$('hintText').textContent;
+function setMode(md){
+  view.mode=md;
+  document.querySelectorAll('#dragMode button').forEach(b=>b.classList.toggle('on',b.dataset.v===md));
+  $('modeNote').textContent=md==='rotate'
+    ?'Rotate: drag a coloured ring to turn the selected joint around one axis, or drag any dot to turn that joint freely. Press M for Move.'
+    :'Move: drag the dots to reach and swing limbs. Press R for Rotate.';
+  $('hintText').textContent=md==='rotate'
+    ?'Rotate mode: drag a ring for one axis, drag a dot to turn freely, empty space orbits, M = Move'
+    :HINT_MOVE;
+  hoverRing=-1;markDirty();
+}
+document.querySelectorAll('#dragMode button').forEach(b=>{b.onclick=()=>setMode(b.dataset.v);});
 $('mirror').onclick=()=>{
   pushUndo();anim=null;
   const n=pose.rot.map((q,i)=>{const m=pose.rot[MIRROR[i]];return [m[0],-m[1],-m[2],m[3]];});
@@ -1485,7 +1595,7 @@ function loop(now){
 requestAnimationFrame(loop);
 
 // expose for testing
-window.__PM={setClipFrame:(k,t)=>{const c=sampleClip(k,t,pose.rot,pose.root);pose.rot=c.rot;pose.root=c.root;anim=null;},render:()=>render(performance.now()),state,pose,mesh:()=>mesh,buildGLB,applyPreset,PRESETS,B,BONE_NAMES,get W(){return W;},cam,rebuildBody,computeWorld,rest:()=>rest,restWorld:()=>restWorld,HANDLES,skinInto,groundedRootY};
+window.__PM={setMode:m=>setMode(m),get selBone(){return selBone;},setClipFrame:(k,t)=>{const c=sampleClip(k,t,pose.rot,pose.root);pose.rot=c.rot;pose.root=c.root;anim=null;},render:()=>render(performance.now()),state,pose,mesh:()=>mesh,buildGLB,applyPreset,PRESETS,B,BONE_NAMES,get W(){return W;},cam,rebuildBody,computeWorld,rest:()=>rest,restWorld:()=>restWorld,HANDLES,skinInto,groundedRootY};
 })();
 </script>
 </body>
