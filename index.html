@@ -500,15 +500,18 @@ function buildMesh(gender,style){
   else if(lb==='full') patch(-1,0,1.300,F?.120:.140,LOGO_RECT.plate);
 
   /* ---- neck + head ---- */
-  loft([rY(1.447,.067,.062,W2(B.chest,B.neck),S.trim),rY(1.478,.058,.056,W2(B.chest,B.neck),S.trim)],{capStart:false,capEnd:false});
-  loft([rY(1.44,.055,.055,W2(B.chest,B.neck),S.skin),rY(1.50,.050,.050,W1(B.neck),S.skin),rY(1.54,.050,.052,W2(B.neck,B.head),S.skin)],{capStart:false});
-  // ---- Head: 12 sides x 14 rings. Each ring's front vertices are pushed forward/back (dz) and the cheek facets get a
+  const NK=F?1:1.14;                                        // a thicker neck on the male
+  loft([rY(1.447,.067*NK,.062*NK,W2(B.chest,B.neck),S.trim),rY(1.478,.058*NK,.056*NK,W2(B.chest,B.neck),S.trim)],{capStart:false,capEnd:false});
+  loft([rY(1.44,.055*NK,.055*NK,W2(B.chest,B.neck),S.skin),rY(1.50,.050*NK,.050*NK,W1(B.neck),S.skin),rY(1.54,.050*NK,.052*NK,W2(B.neck,B.head),S.skin)],{capStart:false,n:10});
+  if(!F) box([0,1.4985,.0600],[.0060,.0085,.0060],W1(B.neck),S.skin);   // Adam's apple
+  // ---- Head: 16 sides x 14 rings. Each ring's front vertices are pushed forward/back (dz) and the cheek facets get a
   // little extra (cheek) so, from every side, the face has a sloping forehead, a brow ridge, recessed eye sockets,
-  // cheekbones, a nose base and upper lip that stand proud, a projecting chin and a jaw that turns under. ----
-  const NH=12, KH=1/Math.cos(Math.PI/NH);
+  // cheekbones, a nose base and upper lip that stand proud, a projecting chin and a jaw that turns under.
+  // The male head is blockier: a wider jaw and chin, deeper-set eyes and a heavier brow ridge. ----
+  const NH=16, KH=1/Math.cos(Math.PI/NH);
   const cheekG=(s,c)=>c>0?Math.exp(-(((Math.abs(s)-.72)/.24)**2)):0;
   // [y, rx, rz, cz, dz, yOffsetAtFront, cheek]
-  const HEAD=[
+  const HEAD=F?[
     [1.525,.045,.060,.010,.016,-.004,0],
     [1.540,.052,.066,.009,.012,0,0],
     [1.555,.058,.072,.0075,.008,0,0],
@@ -523,27 +526,47 @@ function buildMesh(gender,style){
     [1.710,.078,.092,0,-.002,0,0],
     [1.738,.069,.082,0,0,0,0],
     [1.765,.058,.070,0,0,0,0]
+  ]:[
+    [1.525,.054,.064,.010,.015,-.004,0],
+    [1.540,.062,.070,.009,.011,0,0],
+    [1.555,.068,.076,.0075,.007,0,0],
+    [1.575,.075,.085,.005,.004,0,0],
+    [1.590,.0775,.0875,.004,.0035,0,.0005],
+    [1.605,.079,.089,.003,.003,0,.001],
+    [1.625,.0805,.0905,.0015,-.001,0,.002],
+    [1.640,.082,.094,0,-.006,0,.002],
+    [1.658,.082,.094,0,-.003,0,.001],
+    [1.675,.082,.094,0,.008,0,0],
+    [1.693,.082,.094,0,.003,0,0],
+    [1.710,.081,.093,0,-.003,0,0],
+    [1.738,.072,.083,0,0,0,0],
+    [1.765,.060,.071,0,0,0,0]
   ];
   const stubbleOn=!F&&style.beard==='stubble';
+  // lateral angle (0 = straight ahead) of the centre of side-facet j
+  const angOf=j=>{const a=((j+1)*360/NH)%360;return Math.min(a,360-a);};
   loft(HEAD.map(([y,rx,rz,cz,dz,yo,ch])=>
     rY(y,rx,rz,W1(B.head),S.skin,0,cz,(s,c)=>[0,c>.5?yo:0,dz*Math.max(0,c)+ch*cheekG(s,c)])
   ),{n:NH,cell:(i,j)=>{
-    const inner=(j===11||j===0||j===10||j===1||j===9||j===2||j===8);
-    if(stubbleOn&&i<=6&&inner) return S.stubble;                                      // stubble: jaw, chin and cheeks
-    if(i>=3&&i<=6&&(j===0||j===1||j===9||j===10)) return S.blush;                     // rosy cheeks
+    const a=angOf(j);
+    if(stubbleOn){
+      if(i<=4&&a<=32) return S.stubble;            // chin, upper lip and the front of the jaw (up to the nose base)
+      if(i<=3&&a<=105) return S.stubble;           // jawline and lower cheeks, back to the ear
+    }
+    if(i>=3&&i<=6&&a>=25&&a<=80) return S.blush;   // rosy cheeks
     return undefined;
   }});
   // front surface height of the head at lateral position x and height y (used to seat the face features)
   const headRingZ=(r,x)=>{
     const [,rx,rz,cz,dz,,ch]=r, pts=[];
-    for(let j=0;j<3;j++){                       // vertices at 15, 45 and 75 degrees
+    for(let j=0;j<NH/4;j++){                    // front-facing vertices, up to ~80 degrees round
       const th=(j+.5)*2*Math.PI/NH, sn=Math.sin(th), cs=Math.cos(th);
       pts.push([rx*KH*sn, cz+rz*KH*cs+dz*Math.max(0,cs)+ch*cheekG(sn,cs)]);
     }
     const ax=Math.abs(x);
     if(ax<=pts[0][0]) return pts[0][1];
-    for(let i=0;i<2;i++) if(ax<=pts[i+1][0]){const t=(ax-pts[i][0])/(pts[i+1][0]-pts[i][0]);return pts[i][1]+(pts[i+1][1]-pts[i][1])*t;}
-    return pts[2][1];
+    for(let i=0;i<pts.length-1;i++) if(ax<=pts[i+1][0]){const t=(ax-pts[i][0])/(pts[i+1][0]-pts[i][0]);return pts[i][1]+(pts[i+1][1]-pts[i][1])*t;}
+    return pts[pts.length-1][1];
   };
   const faceZ=(x,y)=>{
     if(y<=HEAD[0][0]) return headRingZ(HEAD[0],x);
@@ -553,8 +576,10 @@ function buildMesh(gender,style){
     return headRingZ(HEAD[HEAD.length-1],x);
   };
 
-  // eyes: almond-shaped white, a coloured iris, a dark pupil and a white highlight. Every layer follows the surface of
-  // the face (so nothing floats at the temples) and is weighted to the eye bone, so the whole eye squashes shut on a blink.
+  // eyes: almond-shaped white, a coloured iris, a dark pupil and a white highlight, with a soft skin-shade lid crease
+  // above. Every layer follows the surface of the face and is weighted to the eye bone, so the eye squashes shut on a blink.
+  // (Slightly smaller and flatter on the male face.)
+  const EYE=F?{rx:.0185,ry:.0102,iris:.0088,pupil:.0043}:{rx:.0166,ry:.0079,iris:.0076,pupil:.0038};
   [[.034,B.eyeL,1],[-.034,B.eyeR,-1]].forEach(([ex,eb,sd])=>{
     const w=W1(eb), ey=1.655;
     const layer=(rx,ry,n,offBack,offFront,slot)=>{
@@ -567,40 +592,42 @@ function buildMesh(gender,style){
       };
       loft([mk(offBack),mk(offFront)],{n});
     };
-    layer(.0185,.0102,10,-.0100,.0010,S.sole);      // sclera
-    layer(.0088,.0088,8,-.0040,.0024,S.iris);       // iris
-    layer(.0043,.0043,6,-.0015,.0036,S.eye);        // pupil
-    layer(.0021,.0021,4,.0010,.0046,S.sole);        // highlight
-    // upper lash line (male face only: on the female face it read as a second eyebrow under the real one)
-    if(!F){
-      const pts=[[-.0185,-.0030],[-.0090,.0004],[0,.0024],[.0090,.0010],[.0185,-.0022]];
-      loft(pts.map(([dx,dy])=>{
-        const x=ex+sd*dx, y=ey+.0102+dy;
-        return {c:[x,y,faceZ(Math.abs(x),y)+.0026],U:[0,.0026,0],V:[0,0,.0030],w,slot:S.eye};
-      }),{n:4});
-    }
+    layer(EYE.rx,EYE.ry,12,-.0100,.0010,S.sole);      // sclera
+    layer(EYE.iris,EYE.iris,10,-.0040,.0024,S.iris);  // iris
+    layer(EYE.pupil,EYE.pupil,8,-.0015,.0036,S.eye);  // pupil
+    layer(.0021,.0021,4,.0010,.0046,S.sole);          // highlight
+    // lid crease: a thin, soft arc just above the eye in a shade of the skin (no dark lash line: it read as a second brow)
+    const cp=[[-1,-.0020],[-.5,.0014],[0,.0032],[.5,.0020],[1,-.0016]];
+    loft(cp.map(([f,dy])=>{
+      const x=ex+sd*f*EYE.rx*1.02, y=ey+EYE.ry+.0036+dy;
+      return {c:[x,y,faceZ(Math.abs(x),y)+.0016],U:[0,.0016,0],V:[0,0,.0024],w,slot:S.skinShade};
+    }),{n:4});
   });
-  // eyebrows: arched and tapered (thick at the nose, thin at the temple); a little finer on the female face
+  // eyebrows: arched and tapered (thick at the nose, thin at the temple). Finer and higher on the female face;
+  // heavier, straighter and lower on the male face.
   [1,-1].forEach(sd=>{
-    const th=F?.82:1.08;
-    const rr=(x,y,t)=>({c:[sd*x,y,faceZ(x,y)+.0020],U:[0,.0034*t*th,0],V:[0,0,.0030],w:W1(B.head),slot:S.hair});
-    loft([rr(.0135,1.6738,1.05),rr(.0275,1.6788,1.0),rr(.0415,1.6812,.82),rr(.0545,1.6758,.52)],{n:4});
+    const th=F?.82:1.32, dy=F?0:-.0022, arch=F?1:.55;
+    const rr=(x,y,t)=>({c:[sd*x,y+dy-(F?0:(y-1.6738)*(1-arch)),faceZ(x,y+dy)+.0020],U:[0,.0034*t*th,0],V:[0,0,.0032],w:W1(B.head),slot:S.hair});
+    loft([rr(.0135,1.6738,1.05),rr(.0275,1.6788,1.0),rr(.0415,1.6812,.86),rr(.0545,1.6758,.55)],{n:4});
   });
   // nose: a slanted column of rings (narrow bridge between the eyes, widening to a rounded tip with nostril wings);
-  // the underside is a shade darker
+  // the underside is a shade darker; a little larger on the male face
   {
-    const nr=[[1.665,.0015,.0042,.0042],[1.642,.0055,.0068,.0058],[1.622,.0105,.0098,.0078],[1.607,.0150,.0128,.0098],[1.597,.0125,.0120,.0080]];
-    loft(nr.map(([y,off,rx,rz])=>({c:[0,y,faceZ(0,y)+off],U:[rx,0,0],V:[0,0,rz],w:W1(B.head),slot:S.skin})),{n:6,endSlot:S.skinShade});
+    const NS=F?1:1.16, TIP=F?0:.003;
+    const nr=[[1.665,.0015,.0042,.0042],[1.642,.0055,.0068,.0058],[1.622,.0105+TIP*.5,.0098,.0078],[1.607,.0150+TIP,.0128,.0098],[1.597,.0125+TIP,.0120,.0080]];
+    loft(nr.map(([y,off,rx,rz])=>({c:[0,y,faceZ(0,y)+off],U:[rx*NS,0,0],V:[0,0,rz*NS],w:W1(B.head),slot:S.skin})),{n:6,endSlot:S.skinShade});
+    // nostrils: two small dark openings under the tip
+    [1,-1].forEach(sd=>box([sd*.0065*NS,1.5978,faceZ(0,1.5978)+.0100+TIP],[.0026,.0010,.0030],W1(B.head),S.skinShade));
   }
-  // mouth: a cupid's-bow upper lip and a fuller, lighter lower lip (each a curved 4-ring bar following the face),
-  // a dark parting line and lifted corners
+  // mouth: a cupid's-bow upper lip and a fuller, lighter lower lip (each a curved 5-ring bar following the face),
+  // a dark parting line and lifted corners. Thinner lips on the male face.
   {
-    const wh=W1(B.head);
-    const bar=(xs,y0,dys,rys,rz,off,slot)=>loft(xs.map((x,i)=>({c:[x,y0+dys[i],faceZ(x,y0+dys[i])+off],U:[0,rys[i],0],V:[0,0,rz],w:wh,slot})),{n:4});
+    const wh=W1(B.head), LP=F?1:.82;
+    const bar=(xs,y0,dys,rys,rz,off,slot)=>loft(xs.map((x,i)=>({c:[x,y0+dys[i],faceZ(x,y0+dys[i])+off],U:[0,rys[i]*LP,0],V:[0,0,rz],w:wh,slot})),{n:4});
     bar([-.0185,-.0095,0,.0095,.0185],1.5800,[-.0012,.0004,-.0004,.0004,-.0012],[.0020,.0028,.0024,.0028,.0020],.0034,.0018,S.mouth);
     bar([-.0140,-.0070,0,.0070,.0140],1.5724,[.0008,0,-.0004,0,.0008],[.0022,.0034,.0038,.0034,.0022],.0036,.0012,S.lowerLip);
     bar([-.0172,0,.0172],1.5764,[0,0,0],[.0007,.0007,.0007],.0030,.0010,S.lipLine);
-    [1,-1].forEach(sd=>box([sd*.0185,1.5782,faceZ(.0185,1.5782)+.0010],[.0036,.0030,.0030],wh,S.mouth));
+    [1,-1].forEach(sd=>box([sd*.0185,1.5782,faceZ(.0185,1.5782)+.0010],[.0036,.0030*LP,.0030],wh,S.mouth));
   }
   // beards (male only): follow the jaw, with an opening around the lips
   if(!F&&style.beard&&style.beard!=='none'&&style.beard!=='stubble'){
@@ -612,8 +639,8 @@ function buildMesh(gender,style){
       });
     };
     const shell=(spec,holeBands)=>{
-      const rings=spec.map(([y,rx0,rz0,cz,dz])=>rY(y,rx0+.004,rz0+.004,wh,S.hair,0,cz,(s,c)=>{
-        const rx=rx0+.004, rz=rz0+.004;
+      const rings=spec.map(([y,rx0,rz0,cz,dz])=>rY(y,rx0+.009,rz0+.007,wh,S.hair,0,cz,(s,c)=>{
+        const rx=rx0+.009, rz=rz0+.007;
         if(c<-.6) return [-.5*rx*kk*s,0,-rz*kk*c];       // pull the rearmost vertices in under the jaw
         return [0,0,dz*Math.max(0,c)];
       }));
@@ -624,18 +651,22 @@ function buildMesh(gender,style){
       loft([rY(1.498,.014,.020,wh,S.hair,0,.066),rY(1.522,.020,.026,wh,S.hair,0,.067),
             rY(1.548,.022,.026,wh,S.hair,0,.068),rY(1.568,.018,.022,wh,S.hair,0,.070)],{n:6});
     } else if(bd==='short'){
-      shell([[1.512,.050,.063,.010,.019],[1.545,.062,.074,.008,.013],[1.572,.071,.085,.005,.009],
-             [1.598,.075,.090,.003,.006],[1.622,.077,.092,.001,.002]],[1,2]);
+      shell([[1.512,.054,.064,.010,.019],[1.545,.066,.073,.008,.013],[1.572,.073,.084,.005,.009],
+             [1.592,.0765,.088,.0035,.006]],[1,2]);
     } else if(bd==='full'){
-      shell([[1.488,.043,.055,.011,.012],[1.512,.054,.067,.010,.019],[1.545,.066,.078,.008,.014],
-             [1.572,.074,.088,.005,.010],[1.598,.078,.094,.003,.007],[1.625,.080,.096,.001,.004]],[2,3]);
+      shell([[1.488,.046,.056,.011,.012],[1.512,.056,.066,.010,.019],[1.545,.068,.076,.008,.014],
+             [1.572,.076,.087,.005,.010],[1.595,.079,.090,.0035,.007],[1.610,.0805,.092,.0025,.004]],[2,3]);
     }
   }
   // ears: tapered, slightly swept back
-  [1,-1].forEach(sd=>loft([
-    {c:[sd*.0775,1.645,-.004],U:[0,.019,0],V:[0,0,.0145],w:W1(B.head),slot:S.skin},
-    {c:[sd*.0895,1.647,-.008],U:[0,.0125,0],V:[0,0,.009],w:W1(B.head),slot:S.skin}
-  ],{n:6}));
+  [1,-1].forEach(sd=>{
+    const ex=F?0:.004;
+    loft([
+      {c:[sd*(.0775+ex),1.645,-.004],U:[0,.019,0],V:[0,0,.0145],w:W1(B.head),slot:S.skin},
+      {c:[sd*(.0895+ex),1.647,-.008],U:[0,.0125,0],V:[0,0,.009],w:W1(B.head),slot:S.skin}
+    ],{n:8});
+    box([sd*(.0902+ex),1.6475,-.0085],[.0009,.0085,.0050],W1(B.head),S.skinShade);     // inner ear
+  });
 
   /* ---- hair ---- */
   let hs=style.hairStyle;
@@ -655,7 +686,7 @@ function buildMesh(gender,style){
   };
   const tube=(rings,n=6)=>loft(rings,{n});
   if(hs==='short') skullCap(.009,1.790,.05,.062);
-  else if(hs==='buzz') skullCap(.004,1.772,.045,.050);
+  else if(hs==='buzz') skullCap(.007,1.774,.045,.050);
   else if(hs==='quiff'){
     skullCap(.009,1.790,.05,.062);
     loft([HC(1.735,.062,.060,0,.040),HC(1.790,.066,.062,0,.068),HC(1.838,.048,.052,0,.088),HC(1.852,.030,.036,0,.092)]);
@@ -751,10 +782,10 @@ function buildMesh(gender,style){
       const r=s[1]*L*(sleeve?1.08:1);
       return rX(sd*(sx+s[0]),SHY+(s[3]||0),r,r,s[2],cuff?S.trim:(sleeve?S.top:S.skin));
     });
-    loft(rings,{capEnd:false});
+    loft(rings,{capEnd:false,n:10});
     if(outer==='hoodie'||outer==='jacket'||outer==='coat'){        // long outerwear sleeves over the shirt
       const sl=spec.filter(q=>q[0]<=.50).map(q=>rX(sd*(sx+q[0]),SHY+(q[3]||0),q[1]*L*1.19,q[1]*L*1.19,q[2],q[0]>=.47?S.trim:S.outer));
-      loft(sl,{capStart:false,capEnd:false});
+      loft(sl,{capStart:false,capEnd:false,n:10});
     }
     if(style.watch&&sd>0){                                          // watch on the left wrist
       loft([rX(sd*(sx+.505),SHY,.0385*L,.0385*L,W1(fo),S.eye),rX(sd*(sx+.540),SHY,.0375*L,.0375*L,W1(fo),S.eye)],{capStart:false,capEnd:false});
@@ -768,7 +799,8 @@ function buildMesh(gender,style){
     [[.027,.080],[.009,.088],[-.009,.082],[-.027,.066]].forEach(([fz,len])=>{
       loft([
         {c:[sd*(sx+.55+.083*hsz),SHY,fz*hsz],U:[0,.0085*hsz,0],V:[0,0,.0078*hsz],w:W1(ha),slot:S.skin},
-        {c:[sd*(sx+.55+(.085+len)*hsz),SHY-.002,fz*hsz],U:[0,.0062*hsz,0],V:[0,0,.0060*hsz],w:W1(ha),slot:S.skin}
+        {c:[sd*(sx+.55+(.085+len*.5)*hsz),SHY-.0010,fz*hsz],U:[0,.0076*hsz,0],V:[0,0,.0070*hsz],w:W1(ha),slot:S.skin},
+        {c:[sd*(sx+.55+(.085+len)*hsz),SHY-.0030,fz*hsz],U:[0,.0060*hsz,0],V:[0,0,.0056*hsz],w:W1(ha),slot:S.skin}
       ],{n:4});
     });
     const thumb=[[.030,.030,.013],[.055,.046,.011],[.085,.056,.008]]; // d, forward offset, radius
@@ -791,7 +823,7 @@ function buildMesh(gender,style){
       const r=q[1]*L*(clothed?1.06:1);
       return rY(q[0],r,r,q[2],slot,cx,0);
     });
-    loft(rings,{capStart:false});
+    loft(rings,{capStart:false,n:10});
     // shoe
     const fsz=F?.93:1;
     const shoe=[[-.050,.032,.040],[-.010,.037,.045],[.050,.040,.037],[.110,.041,.026],[.160,.036,.020],[.190,.026,.016]]; // z, half-wide, half-high
