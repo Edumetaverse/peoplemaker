@@ -360,8 +360,9 @@ function buildMesh(gender,style){
     [1.10,0.130,0.094,W1(B.spine),S.top],
     [1.18,0.146,0.104,W2(B.spine,B.chest),S.top],
     [1.30,0.158,0.116,W1(B.chest),S.top,bust],
-    [1.40,0.168,0.100,W1(B.chest),S.top],
-    [1.44,0.100,0.074,W1(B.chest),S.top],
+    [1.40,0.170,0.100,W1(B.chest),S.top],
+    [1.425,0.158,0.092,W1(B.chest),S.top],
+    [1.44,0.112,0.078,W1(B.chest),S.top],
     [1.47,0.055,0.058,W1(B.chest),S.top]
   ]:[
     [0.84,0.140,0.100,W1(B.hips),S.bottom],
@@ -371,8 +372,9 @@ function buildMesh(gender,style){
     [1.10,0.155,0.100,W1(B.spine),S.top],
     [1.18,0.170,0.108,W2(B.spine,B.chest),S.top],
     [1.30,0.188,0.118,W1(B.chest),S.top],
-    [1.40,0.195,0.108,W1(B.chest),S.top],
-    [1.44,0.115,0.078,W1(B.chest),S.top],
+    [1.40,0.200,0.108,W1(B.chest),S.top],
+    [1.425,0.188,0.100,W1(B.chest),S.top],
+    [1.44,0.128,0.082,W1(B.chest),S.top],
     [1.47,0.062,0.062,W1(B.chest),S.top]
   ];
   loft(T.map(t=>rY(t[0],t[1],t[2],t[3],t[4],0,0,t[5])));
@@ -387,7 +389,7 @@ function buildMesh(gender,style){
 
   /* ---- outerwear: hoodie / jacket / lab coat / hi-vis vest ---- */
   if(outer!=='none'){
-    const hem=outer==='coat'?0.62:(outer==='vest'?0.965:0.935);
+    const hem=outer==='coat'?0.62:0.935;
     const extra=outer==='vest'?[1.03,1.07,1.22,1.26]:[];
     const ys=[hem].concat(T.map(t=>t[0]).concat(extra).filter(y=>y>hem+.012&&y<=1.47)).sort((a,b)=>a-b);
     // the thighs are a little wider than the torso at hip height, so the shell must clear them
@@ -418,7 +420,15 @@ function buildMesh(gender,style){
       let slot=S.outer;
       if(outer==='vest') slot=((y>=1.03&&y<1.07)||(y>=1.22&&y<1.26))?S.reflect:S.outer;
       else if(i===0&&outer!=='coat') slot=S.trim;       // ribbed hem
-      return rY(y,rx,rz,w,slot,0,0,(F&&Math.abs(y-1.30)<1e-6)?bust:undefined);
+      // follow the bust: the shirt's front bulges +24 mm at y=1.30 and fades to nothing at 1.18 / 1.40;
+      // give the shell the same shape plus a few mm of clearance so the shirt never shows through
+      let tw;
+      if(F&&y>1.18&&y<1.40){
+        const bz=.024*Math.max(0,1-Math.abs(y-1.30)/(y<1.30?.12:.10));
+        // the shirt's own tweak moves its front AND back flat vertices by +z; mirror that, with clearance on the front only
+        tw=(s,c)=>c>.85?[0,0,bz+.006]:(c<-.85?[0,0,bz]:[0,0,0]);
+      }
+      return rY(y,rx,rz,w,slot,0,0,tw);
     });
     loft(rings,{capStart:false,capEnd:false});
     if(outer==='jacket'||outer==='coat')
@@ -624,27 +634,24 @@ function buildMesh(gender,style){
     const sleeveRings=noneS?0:(longS?6:4); // rings idx < this are sleeve (band colour = top)
     const dEnd=noneS?-1:(longS?.50:.20);   // where the sleeve ends
     const spec=[ // d, r, weights
-      [-.04,.056,W1(cl)],[0,.058,W2(cl,up)],[.10,.056,W1(up)],[.14,.0585,W1(up)],[.172,.0535,W1(up)],[.20,.052,W1(up)],
+      [-.075,.032,W1(cl),-.024],[-.040,.044,W1(cl),-.012],[-.005,.052,W2(cl,up),-.003],[.035,.057,W1(up)],
+      [.10,.056,W1(up)],[.14,.0585,W1(up)],[.172,.0535,W1(up)],[.20,.052,W1(up)],
       [.29,.046,W2(up,fo)],[.34,.0495,W1(fo)],[.38,.047,W1(fo)],[.472,.036,W1(fo)],[.50,.034,W1(fo)],[.55,.029,W2(fo,ha)]
     ];
     const rings=spec.map(s=>{
       const sleeve=s[0]<dEnd-.001, cuff=sleeve&&s[0]>=dEnd-.029;
       const r=s[1]*L*(sleeve?1.08:1);
-      return rX(sd*(sx+s[0]),SHY,r,r,s[2],cuff?S.trim:(sleeve?S.top:S.skin));
+      return rX(sd*(sx+s[0]),SHY+(s[3]||0),r,r,s[2],cuff?S.trim:(sleeve?S.top:S.skin));
     });
-    loft(rings,{capStart:false,capEnd:false});
+    loft(rings,{capEnd:false});
     if(outer==='hoodie'||outer==='jacket'||outer==='coat'){        // long outerwear sleeves over the shirt
-      const sl=spec.filter(q=>q[0]<=.50).map(q=>rX(sd*(sx+q[0]),SHY,q[1]*L*1.19,q[1]*L*1.19,q[2],q[0]>=.47?S.trim:S.outer));
+      const sl=spec.filter(q=>q[0]<=.50).map(q=>rX(sd*(sx+q[0]),SHY+(q[3]||0),q[1]*L*1.19,q[1]*L*1.19,q[2],q[0]>=.47?S.trim:S.outer));
       loft(sl,{capStart:false,capEnd:false});
     }
     if(style.watch&&sd>0){                                          // watch on the left wrist
       loft([rX(sd*(sx+.505),SHY,.0385*L,.0385*L,W1(fo),S.eye),rX(sd*(sx+.540),SHY,.0375*L,.0375*L,W1(fo),S.eye)],{capStart:false,capEnd:false});
       box([sd*(sx+.522),SHY+.039*L,0],[.014,.0045,.014],W1(fo),S.sole);
     }
-    // end cap of the forearm hidden inside hand; start cap hidden inside torso (still close it)
-    const cb=(sleeveRings>0?1.08:1)*L;
-    loft([rX(sd*(sx-.04),SHY,.056*cb,.056*cb,W1(cl),sleeveRings>0?S.top:S.skin),
-          rX(sd*(sx-.02),SHY,.057*cb,.057*cb,W1(cl),sleeveRings>0?S.top:S.skin)],{capEnd:false});
     // hand
     const hsz=F?.92:1;
     const palm=[[0,.016,.027],[.040,.016,.035],[.085,.014,.038]]; // d, half-thick, half-wide
