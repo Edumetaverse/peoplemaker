@@ -696,13 +696,16 @@ function buildMesh(gender,style){
   const cap=(t,o={})=>{
     const {up=.052,side=.012,nape=.045,top=1.778,vol=0,slot=S.hair}=o;
     const rT=headR(1.765);
+    // the rings stay outside the skull all the way up to the crown (1.765) and only then close over it,
+    // otherwise a patch of scalp shows through on top
     loft([
       hr(1.652,t,{tw:hairTw(up,side,nape),slot}),
       hr(1.690,t+vol*.3,{slot}),
       hr(1.726,t+vol*.6,{slot}),
       hr(1.752,t+vol*.5,{slot}),
-      rY(top-.008,(headR(1.762).rx+t)*.62,(headR(1.762).rz+t)*.62,wh_,slot,0,rT.cz-.002),
-      rY(top,(rT.rx+t)*.30,(rT.rz+t)*.30,wh_,slot,0,rT.cz-.002)
+      hr(1.765,t+vol*.4+.003,{slot}),
+      rY(top-.004,(rT.rx+t)*.80,(rT.rz+t)*.80,wh_,slot,0,rT.cz-.002),
+      rY(top+.004,(rT.rx+t)*.42,(rT.rz+t)*.42,wh_,slot,0,rT.cz-.002)
     ],{n:HAIRN});
   };
   // a tapered lock of hair along a path
