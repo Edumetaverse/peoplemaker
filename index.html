@@ -408,6 +408,21 @@ function buildMesh(gender,style){
     loft([rZ(ex,1.655,.0900,.0110,.0110,W1(eb),S.eye),rZ(ex,1.655,.0975,.0110,.0110,W1(eb),S.eye)],{n:10});
     loft([rZ(ex,1.655,.0960,.0036,.0036,W1(eb),S.sole),rZ(ex,1.655,.0985,.0036,.0036,W1(eb),S.sole)],{n:6});
   });
+  // eyebrows: gently arched bars in the hair colour (head-weighted, so they stay put when the eyes blink)
+  [1,-1].forEach(sd=>{
+    const rr=(x,y)=>({c:[sd*x,y,.0925],U:[0,.0032,0],V:[0,0,.0035],w:W1(B.head),slot:S.hair});
+    loft([rr(.019,1.6735),rr(.034,1.6795),rr(.049,1.6745)],{n:4});
+  });
+  // nose: a triangular wedge. narrow bridge between the eyes, wider base, tip standing proud of the face
+  {
+    const nv=(x,y,z)=>addV([x,y,z],W1(B.head));
+    const T=nv(0,1.651,.0935), L=nv(-.0145,1.602,.0835), R=nv(.0145,1.602,.0835), A=nv(0,1.607,.1085);
+    const ref=[0,1.62,.093];
+    addTri(T,L,A,S.skin,ref);   // left ridge
+    addTri(T,R,A,S.skin,ref);   // right ridge
+    addTri(L,R,A,S.skin,ref);   // underside / nostrils
+    addTri(T,L,R,S.skin,ref);   // back (against the face)
+  }
   // mouth: a slightly upturned smile built from three steps
   box([0,1.5755,.0845],[.012,.0034,.004],W1(B.head),S.mouth);
   box([.0185,1.5805,.0850],[.0075,.0034,.004],W1(B.head),S.mouth);
