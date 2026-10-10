@@ -264,7 +264,7 @@ function viewMat(pos,r,u,f){return [r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u
 function mmul(a,b){const o=new Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
 
 /* ================= skeleton ================= */
-const SL={skin:0,hair:1,eye:2,top:3,bottom:4,shoes:5,mouth:6,sole:7,trim:8,outer:9,reflect:10,hat:11,hatTrim:12,belt:13,lanyard:14,iris:15,blush:16,lowerLip:17,skinShade:18,lipLine:19,stubble:20};
+const SL={skin:0,hair:1,eye:2,top:3,bottom:4,shoes:5,mouth:6,sole:7,trim:8,outer:9,reflect:10,hat:11,hatTrim:12,belt:13,lanyard:14,iris:15,blush:16,lowerLip:17,skinShade:18,lipLine:19,stubble:20,hairHi:21};
 const B={hips:0,spine:1,chest:2,neck:3,head:4,eyeL:5,eyeR:6,clavL:7,upperL:8,foreL:9,handL:10,clavR:11,upperR:12,foreR:13,handR:14,thighL:15,shinL:16,footL:17,thighR:18,shinR:19,footR:20};
 const NB=21;
 const BONE_NAMES=['hips','spine','chest','neck','head','eye.L','eye.R','clavicle.L','upperArm.L','forearm.L','hand.L','clavicle.R','upperArm.R','forearm.R','hand.R','thigh.L','shin.L','foot.L','thigh.R','shin.R','foot.R'];
@@ -671,72 +671,168 @@ function buildMesh(gender,style){
   /* ---- hair ---- */
   let hs=style.hairStyle;
   if(hat!=='none'&&['spiky','mohawk','quiff','afro','bun'].includes(hs)) hs='short';
-  const HC=(y,rx,rz,cx=0,cz=-.003,tw,w)=>rY(y,rx,rz,w||W1(B.head),S.hair,cx,cz,tw);
-  const hairline=(up,down)=>(s,c)=>[0,c>0.3?up:(c<-0.3?-down:0),0];
-  const skullCap=(t,topY,up,down)=>loft([
-    HC(1.655,.078+t,.092+t,0,-.003,hairline(up,down)),
-    HC(1.710,.078+t,.092+t),
-    HC(1.765,.058+t,.070+t),
-    HC(topY,.031+t,.041+t)
-  ]);
-  // ring whose front half is pulled inside the head (frames the face instead of covering it)
-  const framing=(y,rx,rz,cz,w)=>{
-    const k=1/Math.cos(Math.PI/8);
-    return HC(y,rx,rz,0,cz,(s,c)=>c>.5?[-.5*rx*k*s,0,-rz*k*c]:[0,0,0],w);
+  const HH=hat!=='none';                              // under a hat the hair is just a thin cap
+  const wh_=W1(B.head);
+  const HAIRN=12, HK=1/Math.cos(Math.PI/HAIRN);
+  // skull radii at height y, so every hair shape hugs the head whatever its size
+  const headR=y=>{
+    if(y<=HEAD[0][0]) return {rx:HEAD[0][1],rz:HEAD[0][2],cz:HEAD[0][3]};
+    for(let i=0;i<HEAD.length-1;i++) if(y<=HEAD[i+1][0]){
+      const t=(y-HEAD[i][0])/(HEAD[i+1][0]-HEAD[i][0]),a2=HEAD[i],b2=HEAD[i+1];
+      return {rx:a2[1]+(b2[1]-a2[1])*t,rz:a2[2]+(b2[2]-a2[2])*t,cz:a2[3]+(b2[3]-a2[3])*t};
+    }
+    const l=HEAD[HEAD.length-1];return {rx:l[1],rz:l[2],cz:l[3]};
   };
-  const tube=(rings,n=6)=>loft(rings,{n});
-  if(hs==='short') skullCap(.009,1.790,.05,.062);
-  else if(hs==='buzz') skullCap(.007,1.774,.045,.050);
+  const hr=(y,t,o={})=>{                              // a hair ring hugging the skull at height y, thickness t
+    const r=headR(y);
+    return rY(y,(r.rx+t)*(o.sx||1),(r.rz+t)*(o.sz||1),o.w||wh_,o.slot||S.hair,o.cx||0,r.cz+(o.dz||0)-.002,o.tw);
+  };
+  // hairline: the front rises (up), the sides drop into sideburns (side), the back drops to the nape (nape)
+  const hairTw=(up,side,nape)=>(s2,c)=>{
+    const f=Math.max(0,c),bk=Math.max(0,-c),sd=1-c*c;
+    return [0,up*Math.pow(f,1.6)-nape*Math.pow(bk,1.2)-side*sd,0];
+  };
+  const T0=HH?.005:.010;                              // hair thickness
+  const cap=(t,o={})=>{
+    const {up=.052,side=.012,nape=.045,top=1.778,vol=0,slot=S.hair}=o;
+    const rT=headR(1.765);
+    loft([
+      hr(1.652,t,{tw:hairTw(up,side,nape),slot}),
+      hr(1.690,t+vol*.3,{slot}),
+      hr(1.726,t+vol*.6,{slot}),
+      hr(1.752,t+vol*.5,{slot}),
+      rY(top-.008,(headR(1.762).rx+t)*.62,(headR(1.762).rz+t)*.62,wh_,slot,0,rT.cz-.002),
+      rY(top,(rT.rx+t)*.30,(rT.rz+t)*.30,wh_,slot,0,rT.cz-.002)
+    ],{n:HAIRN});
+  };
+  // a tapered lock of hair along a path
+  const lock=(pts,r0,r1,n=5,slot=S.hair,wx=1)=>loft(pts.map((pt,i)=>{
+    const t=pts.length>1?i/(pts.length-1):0,r=r0+(r1-r0)*t;
+    return {c:pt,U:[r*wx,0,0],V:[0,0,r*1.15],w:wh_,slot};
+  }),{n});
+  // fine streaks that run from the crown down over the skull: they break up the flat cap and add volume.
+  // azimuths are measured from straight ahead; the front is left to the fringe
+  const streaks=(count,lowFront=1.668,lowBack=1.60,t=.010)=>{
+    if(HH) return;
+    for(let k=0;k<count;k++){
+      const th=(.62+(k+.5)/count*(2*Math.PI-1.24))*(k%2?1:-1)*(k<count/2?1:1);   // spread over the sides and back
+      const az=Math.PI*(.30+1.40*((k+.5)/count))*(k%2?1:-1);
+      const lowY=lowFront+(lowBack-lowFront)*Math.min(1,Math.abs(Math.cos(az)<0?-Math.cos(az):0)*1.2);
+      const ys=[1.774,1.748,1.716,1.684,lowY];
+      const pts=ys.map((y,i)=>{
+        const r=headR(Math.min(y,1.762)), f=i===0?.55:1;
+        return [(r.rx+t+.004)*Math.sin(az)*f*1.02,y,r.cz+(r.rz+t+.004)*Math.cos(az)*f*1.02-.002];
+      });
+      lock(pts,.0092,.0056,4,k%3===0?S.hairHi:S.hair);
+    }
+  };
+  const fringeLocks=(xs,lens,hiEvery=2,y0=1.722,tip=.007)=>xs.forEach((x,i)=>{
+    const ax=Math.abs(x), zf=faceZ(ax,y0)+.009;
+    lock([[x*.75,1.774,.030],[x*.93,1.748,.074],[x,y0,zf],[x*1.02,y0-lens[i],faceZ(ax,y0-lens[i])+tip]],.015,.0055,5,i%hiEvery?S.hairHi:S.hair);
+  });
+  const M=!F;
+  if(hs==='short'){
+    cap(T0,{up:.054,side:M?.018:.008,nape:.050,vol:.004});
+    streaks(9,1.670,1.612);
+    if(!HH) fringeLocks([-.052,-.031,-.010,.011,.031,.052],[.020,.028,.032,.026,.030,.020]);
+  }
+  else if(hs==='buzz') cap(.007,{up:.052,side:.014,nape:.040});
   else if(hs==='quiff'){
-    skullCap(.009,1.790,.05,.062);
-    loft([HC(1.735,.062,.060,0,.040),HC(1.790,.066,.062,0,.068),HC(1.838,.048,.052,0,.088),HC(1.852,.030,.036,0,.092)]);
+    cap(T0,{up:.060,side:M?.018:.008,nape:.050,vol:.004});
+    streaks(7,1.670,1.612);
+    // a rounded, swept-back wave over the front of the crown
+    loft([hr(1.712,.010,{dz:.018,sx:.98,sz:.82}),hr(1.750,.017,{dz:.040,sx:.94,sz:.80}),
+          hr(1.790,.020,{dz:.050,sx:.84,sz:.72}),hr(1.816,.017,{dz:.052,sx:.62,sz:.56}),
+          hr(1.830,.010,{dz:.048,sx:.30,sz:.30})],{n:HAIRN});
+    [-1,1].forEach(sd=>lock([[sd*.042,1.744,.040],[sd*.050,1.780,.060],[sd*.040,1.806,.066]],.018,.010,5,S.hairHi,1.3));
   }
   else if(hs==='spiky'){
-    skullCap(.009,1.785,.05,.062);
-    [[0,.00,1.775],[.036,.02,1.762],[-.036,.02,1.762],[.032,-.04,1.752],[-.032,-.04,1.752],[0,.055,1.745],[0,-.07,1.735],[.06,-.005,1.74],[-.06,-.005,1.74]].forEach(([x,z,y0])=>{
-      const h=.055+.02*Math.abs(Math.sin(x*60+z*40));
-      loft([rY(y0,.021,.021,W1(B.head),S.hair,x,z),rY(y0+h,.002,.002,W1(B.head),S.hair,x*1.25,z*1.25)],{n:4,capStart:false});
-    });
+    cap(T0,{up:.056,side:M?.016:.008,nape:.045,vol:.002});
+    // spikes spread over the crown, leaning outwards (golden-angle placement so they never look gridded)
+    for(let k=0;k<15;k++){
+      const ang=k*2.399963, rad=.010+.056*Math.sqrt(k/14);
+      const bx=rad*Math.sin(ang), bz=-.006+rad*Math.cos(ang)*1.12, by=1.757+.014*(1-rad/.07);
+      const len=.050+.032*(((k*7)%5)/4), lean=.55+.5*rad/.07;
+      lock([[bx,by,bz],[bx*(1+.35*lean),by+len*.55,bz+(bz>-.006?1:-1)*.006*lean],[bx*(1+.9*lean),by+len,bz*(1+.7*lean)+.002]],.021,.003,5,k%3?S.hair:S.hairHi);
+    }
   }
   else if(hs==='mohawk'){
-    [[.075,1.738,.05],[.040,1.756,.062],[.005,1.762,.070],[-.030,1.756,.066],[-.065,1.738,.058],[-.095,1.705,.046]].forEach(([z,y0,h])=>{
-      box([0,y0+h/2-.006,z],[.013,h/2+.006,.019],W1(B.head),S.hair);
-    });
+    cap(.004,{up:.082,side:.012,nape:.040,slot:S.stubble});     // shaved sides
+    [[.088,1.730,.050],[.062,1.752,.062],[.034,1.764,.070],[.006,1.768,.074],[-.022,1.764,.072],[-.050,1.750,.066],
+     [-.076,1.730,.058],[-.098,1.700,.050]].forEach(([z,y0,h],i)=>
+      lock([[0,y0-.008,z],[0,y0+h*.55,z-.004],[0,y0+h,z-.010]],.016,.004,5,i%2?S.hairHi:S.hair));
   }
   else if(hs==='bob'){
-    skullCap(.009,1.790,.05,.062);
-    loft([framing(1.665,.096,.106,-.004),framing(1.600,.100,.106,-.004),framing(1.545,.098,.100,-.010),framing(1.500,.088,.090,-.014)]);
+    cap(T0,{up:.050,side:0,nape:.030,vol:.003});
+    streaks(7,1.668,1.62);
+    // rounded bob: wraps the head, curls under at the ends, front pulled in so the face stays open
+    const bobSpec=[[1.668,1.00,.014],[1.628,1.06,.014],[1.588,1.10,.014],[1.552,1.10,.014],[1.524,1.05,.013],[1.508,.93,.012]];
+    loft(bobSpec.map(([y,k,t])=>{
+      const r=headR(Math.min(Math.max(y,1.53),1.70)), rx=(r.rx+t)*k, rz=(r.rz+t+.002)*k;
+      return rY(y,rx,rz,wh_,S.hair,0,r.cz-.010,(s2,c)=>c>.45?[-.55*rx*HK*s2,0,-rz*HK*c]:[0,0,0]);
+    }),{n:HAIRN});
+    if(!HH){
+      fringeLocks([-.060,-.040,-.020,0,.020,.040,.060],[.030,.034,.036,.038,.036,.034,.030],3,1.724,.004);
+      [1,-1].forEach(sd=>lock([[sd*.080,1.668,.030],[sd*.087,1.620,.046],[sd*.085,1.572,.052],[sd*.078,1.534,.052]],.014,.007,5,S.hairHi));
+    }
   }
   else if(hs==='long'){
-    skullCap(.009,1.790,.05,.062);
-    loft([
-      rY(1.64,.088,.062,W1(B.head),S.hair,0,-.040),
-      rY(1.54,.086,.060,W1(B.head),S.hair,0,-.060),
-      rY(1.42,.086,.040,W2(B.head,B.chest),S.hair,0,-.130),
-      rY(1.28,.074,.030,W1(B.chest),S.hair,0,-.145)
-    ]);
+    cap(T0,{up:.054,side:0,nape:.075,vol:.003});
+    streaks(7,1.668,1.60);
+    // long back mass in layers; the front vertices are pulled inside so it falls behind and beside the face
+    const spec=[[1.660,.094,.092,0,wh_],[1.600,.096,.084,-.012,wh_],[1.540,.095,.072,-.040,wh_],
+                [1.480,.094,.054,-.085,W2(B.head,B.chest)],[1.420,.095,.042,-.125,W2(B.head,B.chest)],
+                [1.360,.094,.036,-.143,W1(B.chest)],[1.300,.090,.032,-.148,W1(B.chest)],[1.236,.080,.028,-.148,W1(B.chest)]];
+    loft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    if(!HH){
+      // strands falling in front of the shoulders
+      [1,-1].forEach(sd=>{
+        const zc=y=>torsoAt(y).rz*FSH*.9+.016;
+        lock([[sd*.078,1.668,.040],[sd*.092,1.600,.040],[sd*.100,1.520,.046],[sd*.104,1.448,.062],[sd*.100,1.372,zc(1.372)],[sd*.094,1.300,zc(1.300)]],.016,.008,5,S.hair,1.7);
+        lock([[sd*.070,1.676,.062],[sd*.082,1.610,.060],[sd*.090,1.540,.062],[sd*.092,1.470,.074],[sd*.090,1.400,zc(1.400)]],.011,.005,5,S.hairHi,1.6);
+      });
+      // side-swept fringe
+      fringeLocks([-.058,-.036,-.014,.008,.030,.052],[.030,.038,.040,.036,.030,.022],2,1.722,.005);
+    }
   }
   else if(hs==='ponytail'){
-    skullCap(.009,1.790,.05,.062);
-    tube([HC(1.725,.032,.032,0,-.092),HC(1.685,.034,.034,0,-.122),HC(1.605,.032,.032,0,-.148),HC(1.515,.027,.027,0,-.153),HC(1.425,.018,.018,0,-.148),HC(1.385,.006,.006,0,-.145)]);
+    cap(T0,{up:.060,side:M?.010:.004,nape:.022,vol:.004});
+    streaks(6,1.672,1.640);
+    const path=[[0,1.738,-.086],[0,1.716,-.112],[0,1.660,-.140],[0,1.582,-.158],[0,1.504,-.163],[0,1.436,-.158],[0,1.392,-.150]];
+    lock(path,.030,.011,8);
+    loft([{c:[0,1.742,-.082],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.eye},{c:[0,1.726,-.098],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.eye}],{n:8});   // hair tie
+    // loose ends
+    [-1,0,1].forEach(k=>lock([[k*.010,1.470,-.162],[k*.016,1.430,-.162],[k*.022,1.384,-.156]],.018,.003,5,k?S.hairHi:S.hair));
+    if(!HH) fringeLocks([-.044,-.020,.004,.028,.050],[.014,.018,.020,.016,.012],2,1.730,.004);
   }
   else if(hs==='bun'){
-    skullCap(.009,1.790,.05,.062);
-    tube([HC(1.775,.040,.040,0,-.040),HC(1.810,.052,.052,0,-.042),HC(1.850,.046,.046,0,-.042),HC(1.874,.026,.026,0,-.042)],8);
+    cap(T0,{up:.058,side:M?.010:.004,nape:.024,vol:.003});
+    streaks(6,1.672,1.636);
+    loft([{c:[0,1.768,-.040],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.hair},{c:[0,1.790,-.044],U:[.052,0,0],V:[0,0,.052],w:wh_,slot:S.hair},
+          {c:[0,1.816,-.046],U:[.056,0,0],V:[0,0,.056],w:wh_,slot:S.hair},{c:[0,1.842,-.045],U:[.048,0,0],V:[0,0,.048],w:wh_,slot:S.hair},
+          {c:[0,1.864,-.043],U:[.030,0,0],V:[0,0,.030],w:wh_,slot:S.hair},{c:[0,1.876,-.042],U:[.012,0,0],V:[0,0,.012],w:wh_,slot:S.hair}],{n:10});
+    loft([{c:[0,1.770,-.040],U:[.055,0,0],V:[0,0,.055],w:wh_,slot:S.eye},{c:[0,1.782,-.042],U:[.055,0,0],V:[0,0,.055],w:wh_,slot:S.eye}],{n:10});  // wrap
+    if(!HH) fringeLocks([-.046,-.022,.002,.026,.050],[.016,.020,.022,.018,.014],2,1.730,.004);
   }
   else if(hs==='pigtails'){
-    skullCap(.009,1.790,.05,.062);
-    [1,-1].forEach(sd=>tube([HC(1.710,.030,.030,sd*.090,-.020),HC(1.650,.032,.032,sd*.108,-.030),HC(1.570,.030,.030,sd*.118,-.040),HC(1.490,.024,.024,sd*.118,-.046),HC(1.420,.014,.014,sd*.116,-.046),HC(1.390,.005,.005,sd*.115,-.046)]));
+    cap(T0,{up:.058,side:.004,nape:.030,vol:.003});
+    streaks(6,1.672,1.630);
+    [1,-1].forEach(sd=>{
+      lock([[sd*.090,1.704,-.020],[sd*.108,1.655,-.030],[sd*.120,1.585,-.036],[sd*.123,1.515,-.040],[sd*.120,1.452,-.036],[sd*.118,1.420,-.034]],.031,.012,8);
+      loft([{c:[sd*.092,1.708,-.020],U:[.034,0,0],V:[0,0,.034],w:wh_,slot:S.eye},{c:[sd*.100,1.690,-.024],U:[.034,0,0],V:[0,0,.034],w:wh_,slot:S.eye}],{n:8});  // ties
+      [-1,1].forEach(k=>lock([[sd*.121+k*.004,1.480,-.038],[sd*.121+k*.010,1.432,-.036],[sd*.119+k*.016,1.394,-.032]],.016,.003,5,k>0?S.hairHi:S.hair));
+    });
+    if(!HH) fringeLocks([-.050,-.026,-.002,.022,.046],[.020,.026,.028,.024,.020],2,1.726,.004);
   }
   else if(hs==='afro'){
-    loft([
-      HC(1.690,.100,.106,0,-.008,hairline(.020,.080)),
-      HC(1.745,.136,.141,0,-.008),
-      HC(1.805,.160,.160,0,-.008),
-      HC(1.865,.152,.152,0,-.008),
-      HC(1.915,.116,.116,0,-.008),
-      HC(1.948,.060,.060,0,-.008)
-    ]);
+    // a big, soft sphere of hair with clumps breaking up the silhouette
+    const rr=[[1.690,.103,.109,0],[1.730,.136,.141,.002],[1.775,.158,.160,.002],[1.825,.156,.157,.002],[1.875,.136,.136,.002],[1.920,.100,.100,.002],[1.950,.056,.056,.002],[1.964,.024,.024,.002]];
+    loft(rr.map(([y,rx,rz,cz],i)=>rY(y,rx,rz,wh_,S.hair,0,cz-.008,i===0?hairTw(.020,.006,.080):undefined)),{n:14});
+    const cl=[[0,.060,.172,1.84],[.8,.12,.165,1.86],[-.8,.12,.165,1.86],[1.6,.12,.160,1.80],[-1.6,.12,.160,1.80],[2.4,.10,.150,1.84],[-2.4,.10,.150,1.84],[3.1,.05,.14,1.87],[.45,.095,.150,1.93],[-.45,.095,.150,1.93]];
+    cl.forEach(([ang,rad,sz,y],i)=>{
+      const x=Math.sin(ang)*(.150), z=-.008+Math.cos(ang)*(.150)*.95;
+      lock([[x*.80,y-.012,z*.80],[x,y,z],[x*1.12,y+.008,z*1.12]],.036,.020,6,i%2?S.hair:S.hairHi);
+    });
   }
 
   /* ---- headwear ---- */
@@ -1404,7 +1500,7 @@ function shade(hex,f){
 const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#ffffff',shade(state.top,0.74),
   state.outerCol,'#dfe3e6',state.hatCol,shade(state.hatCol,0.7),'#4a3426','#c8372d',
   state.irisCol,mixHex(state.skin,'#e5606e',state.gender==='female'?0.30:0.13),mixHex(state.mouth,'#ffffff',0.20),
-  shade(state.skin,0.80),shade(state.mouth,0.55),mixHex(state.skin,state.hair,0.42)];
+  shade(state.skin,0.80),shade(state.mouth,0.55),mixHex(state.skin,state.hair,0.42),mixHex(state.hair,'#ffffff',0.17)];
 let bodyData=null,bodyCount=0;
 function displayPose(now){
   if(view.clip&&!previewPaused&&!drag){
