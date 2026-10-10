@@ -2,9 +2,11 @@
 
 Single-file, offline low-poly person generator for building characters for worlds.
 
-- **index.html** – the People Maker. Pose with draggable joints (IK), pick a preset, male/female,
-  12 hair styles, clothing colours and an EDUmetaverse shirt logo, then export a rigged, skinned GLB
-  (about 0.3 MB, limit 1 MB) with optional **Idle, Walk, Run and Wave** animation clips.
+- **index.html** – the People Maker. Pose with draggable joints (IK, or a rotation gizmo), pick a preset
+  (incl. Technician, Relaxed, Chatting), male/female, 12 hair styles, clothing colours, outerwear (hoodie,
+  jacket, lab coat, hi-vis vest), hats, accessories (glasses, watch, ID lanyard, tool belt) and an
+  EDUmetaverse shirt logo, then export a rigged, skinned GLB (typically 0.3-0.6 MB, limit 1 MB) with optional
+  **Idle, Walk, Run, Wave and Chat** animation clips.
 - **viewer.html** – the Character Viewer, built on the [PlayCanvas engine](https://github.com/playcanvas/engine).
   Drop in a GLB to check it in a second engine: triangles, skin joints, size, clip list, and
   crossfaded idle / walk / run playback.
