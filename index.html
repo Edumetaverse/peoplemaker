@@ -306,12 +306,12 @@ function buildMesh(gender,style){
     return {bi,bw};
   };
   const addV=(p,infl)=>{const n=norm(infl);verts.push({p:p.slice(),bi:n.bi,bw:n.bw});return verts.length-1;};
-  const addTri=(a,b,c,slot,ref)=>{
+  const addTri=(a,b,c,slot,ref,sm)=>{
     const pa=verts[a].p,pb=verts[b].p,pc=verts[c].p;
     const n=v3.cross(v3.sub(pb,pa),v3.sub(pc,pa));
     if(v3.len(n)<1e-9) return;
     const cen=[(pa[0]+pb[0]+pc[0])/3,(pa[1]+pb[1]+pc[1])/3,(pa[2]+pb[2]+pc[2])/3];
-    if(v3.dot(n,v3.sub(cen,ref))<0) tris.push({i:[a,c,b],slot}); else tris.push({i:[a,b,c],slot});
+    if(v3.dot(n,v3.sub(cen,ref))<0) tris.push({i:[a,c,b],slot,sm}); else tris.push({i:[a,b,c],slot,sm});
   };
   const mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2];
 
@@ -333,17 +333,17 @@ function buildMesh(gender,style){
         const a=idx[i][j],b=idx[i][(j+1)%n],c=idx[i+1][(j+1)%n],d=idx[i+1][j];
         const ov=o.cell?o.cell(i,j):undefined, slot=ov!==undefined?ov:slot0;
         if(slot===null) continue;
-        addTri(a,b,c,slot,ref);addTri(a,c,d,slot,ref);
+        addTri(a,b,c,slot,ref,o.smooth);addTri(a,c,d,slot,ref,o.smooth);
       }
     }
     const last=rings.length-1;
     if(o.capStart!==false){
       const c=addV(rings[0].c,rings[0].w);
-      for(let j=0;j<n;j++) addTri(c,idx[0][j],idx[0][(j+1)%n],rings[0].slot,rings[1].c);
+      for(let j=0;j<n;j++) addTri(c,idx[0][j],idx[0][(j+1)%n],rings[0].slot,rings[1].c,o.smooth);
     }
     if(o.capEnd!==false){
       const c=addV(rings[last].c,rings[last].w),slot=o.endSlot!==undefined?o.endSlot:rings[last-1].slot;
-      for(let j=0;j<n;j++) addTri(c,idx[last][j],idx[last][(j+1)%n],slot,rings[last-1].c);
+      for(let j=0;j<n;j++) addTri(c,idx[last][j],idx[last][(j+1)%n],slot,rings[last-1].c,o.smooth);
     }
   }
   function box(c,h,w,slot){
@@ -500,9 +500,12 @@ function buildMesh(gender,style){
   else if(lb==='full') patch(-1,0,1.300,F?.120:.140,LOGO_RECT.plate);
 
   /* ---- neck + head ---- */
-  const NK=F?1:1.14;                                        // a thicker neck on the male
+  const NK=F?1:1.14;
+  // a thicker neck on the male
   loft([rY(1.447,.067*NK,.062*NK,W2(B.chest,B.neck),S.trim),rY(1.478,.058*NK,.056*NK,W2(B.chest,B.neck),S.trim)],{capStart:false,capEnd:false});
-  loft([rY(1.44,.055*NK,.055*NK,W2(B.chest,B.neck),S.skin),rY(1.50,.050*NK,.050*NK,W1(B.neck),S.skin),rY(1.54,.050*NK,.052*NK,W2(B.neck,B.head),S.skin)],{capStart:false,n:10});
+  const nk0=verts.length;
+  loft([rY(1.44,.055*NK,.055*NK,W2(B.chest,B.neck),S.skin),rY(1.50,.050*NK,.050*NK,W1(B.neck),S.skin),rY(1.54,.050*NK,.052*NK,W2(B.neck,B.head),S.skin)],{capStart:false,n:10,smooth:true});
+  const nk1=verts.length;
   if(!F) box([0,1.4985,.0600],[.0060,.0085,.0060],W1(B.neck),S.skin);   // Adam's apple
   // ---- Head: 16 sides x 14 rings. Each ring's front vertices are pushed forward/back (dz) and the cheek facets get a
   // little extra (cheek) so, from every side, the face has a sloping forehead, a brow ridge, recessed eye sockets,
@@ -545,17 +548,11 @@ function buildMesh(gender,style){
   const stubbleOn=!F&&style.beard==='stubble';
   // lateral angle (0 = straight ahead) of the centre of side-facet j
   const angOf=j=>{const a=((j+1)*360/NH)%360;return Math.min(a,360-a);};
+  const hv0=verts.length;
   loft(HEAD.map(([y,rx,rz,cz,dz,yo,ch])=>
     rY(y,rx,rz,W1(B.head),S.skin,0,cz,(s,c)=>[0,c>.5?yo:0,dz*Math.max(0,c)+ch*cheekG(s,c)])
-  ),{n:NH,cell:(i,j)=>{
-    const a=angOf(j);
-    if(stubbleOn){
-      if(i<=4&&a<=32) return S.stubble;            // chin, upper lip and the front of the jaw (up to the nose base)
-      if(i<=3&&a<=105) return S.stubble;           // jawline and lower cheeks, back to the ear
-    }
-    if(i>=3&&i<=6&&a>=25&&a<=80) return S.blush;   // rosy cheeks
-    return undefined;
-  }});
+  ),{n:NH,smooth:true});
+  const hv1=verts.length;
   // front surface height of the head at lateral position x and height y (used to seat the face features)
   const headRingZ=(r,x)=>{
     const [,rx,rz,cz,dz,,ch]=r, pts=[];
@@ -621,14 +618,14 @@ function buildMesh(gender,style){
   [1,-1].forEach(sd=>{
     const th=F?.80:1.18, dy=F?0:-.0022, arch=F?1:.60;
     const rr=(x,y,t)=>({c:[sd*x,y+dy-(F?0:(y-1.6738)*(1-arch)),faceZ(x,y+dy)+.0020],U:[0,.0034*t*th,0],V:[0,0,.0032],w:W1(B.head),slot:S.hair});
-    loft([rr(.0135,1.6738,1.05),rr(.0275,1.6788,1.0),rr(.0415,1.6812,.86),rr(.0545,1.6758,.55)],{n:4});
+    loft([rr(.0135,1.6738,1.05),rr(.0275,1.6788,1.0),rr(.0415,1.6812,.86),rr(.0545,1.6758,.55)],{n:4,smooth:true});
   });
   // nose: a slanted column of rings (narrow bridge between the eyes, widening to a rounded tip with nostril wings);
   // the underside is a shade darker; a little larger on the male face
   {
     const NS=F?.96:1.10, TIP=F?0:.0015;
     const nr=[[1.660,.0012,.0040,.0040],[1.640,.0040,.0064,.0054],[1.622,.0078+TIP*.5,.0094,.0072],[1.608,.0112+TIP,.0122,.0090],[1.600,.0092+TIP,.0114,.0074]];
-    loft(nr.map(([y,off,rx,rz])=>({c:[0,y,faceZ(0,y)+off],U:[rx*NS,0,0],V:[0,0,rz*NS],w:W1(B.head),slot:S.skin})),{n:6,endSlot:S.skinShade});
+    loft(nr.map(([y,off,rx,rz])=>({c:[0,y,faceZ(0,y)+off],U:[rx*NS,0,0],V:[0,0,rz*NS],w:W1(B.head),slot:S.skin})),{n:6,endSlot:S.skinShade,smooth:true});
     // nostrils: two small dark openings under the tip
     [1,-1].forEach(sd=>box([sd*.0062*NS,1.6005,faceZ(0,1.6005)+.0080+TIP],[.0025,.0010,.0028],W1(B.head),S.skinShade));
   }
@@ -636,7 +633,7 @@ function buildMesh(gender,style){
   // a dark parting line and lifted corners. Thinner lips on the male face.
   {
     const wh=W1(B.head), LP=F?1:.82;
-    const bar=(xs,y0,dys,rys,rz,off,slot)=>loft(xs.map((x,i)=>({c:[x,y0+dys[i],faceZ(x,y0+dys[i])+off],U:[0,rys[i]*LP,0],V:[0,0,rz],w:wh,slot})),{n:4});
+    const bar=(xs,y0,dys,rys,rz,off,slot)=>loft(xs.map((x,i)=>({c:[x,y0+dys[i],faceZ(x,y0+dys[i])+off],U:[0,rys[i]*LP,0],V:[0,0,rz],w:wh,slot})),{n:4,smooth:true});
     bar([-.0185,-.0095,0,.0095,.0185],1.5800,[-.0012,.0004,-.0004,.0004,-.0012],[.0020,.0028,.0024,.0028,.0020],.0034,.0018,S.mouth);
     bar([-.0140,-.0070,0,.0070,.0140],1.5724,[.0008,0,-.0004,0,.0008],[.0022,.0034,.0038,.0034,.0022],.0036,.0012,S.lowerLip);
     bar([-.0172,0,.0172],1.5764,[0,0,0],[.0007,.0007,.0007],.0030,.0010,S.lipLine);
@@ -677,7 +674,7 @@ function buildMesh(gender,style){
     loft([
       {c:[sd*(.0775+ex),1.645,-.004],U:[0,.019,0],V:[0,0,.0145],w:W1(B.head),slot:S.skin},
       {c:[sd*(.0895+ex),1.647,-.008],U:[0,.0125,0],V:[0,0,.009],w:W1(B.head),slot:S.skin}
-    ],{n:8});
+    ],{n:8,smooth:true});
     box([sd*(.0902+ex),1.6475,-.0085],[.0009,.0085,.0050],W1(B.head),S.skinShade);     // inner ear
   });
 
@@ -996,9 +993,28 @@ function buildMesh(gender,style){
     ao[i]=a;
   });
 
+  // soft colour tints (multipliers on the skin colour): rosy cheeks and stubble as gradients, never hard-edged patches
+  const tint=new Float32Array(verts.length*3).fill(1);
+  const sstep=(e0,e1,x)=>{const t=clamp((x-e0)/(e1-e0),0,1);return t*t*(3-2*t);};
+  for(let i=hv0;i<hv1;i++){
+    const p=verts[i].p;
+    const dx=(Math.abs(p[0])-.047)/.022, dy=(p[1]-1.612)/.024;
+    const bl=Math.exp(-(dx*dx+dy*dy))*(p[2]>.03?1:0)*(F?1:.40);        // blush: an oval over each cheekbone
+    let r=1,g2=1-bl*.20,b2=1-bl*.23;
+    if(stubbleOn){                                                       // stubble: lower face darkens and cools
+      const st=sstep(1.630,1.590,p[1])*sstep(-.05,.02,p[2]);
+      r-=st*.24;g2-=st*.26;b2-=st*.24;
+    }
+    tint[i*3]=r;tint[i*3+1]=g2;tint[i*3+2]=b2;
+  }
+  if(stubbleOn) for(let i=nk0;i<nk1;i++){                                // ...and carries a little way down the neck
+    const p=verts[i].p, st=sstep(1.445,1.512,p[1])*sstep(-.03,.03,p[2]);
+    tint[i*3]-=st*.24;tint[i*3+1]-=st*.26;tint[i*3+2]-=st*.24;
+  }
+
   // uniform height scale
   verts.forEach(v=>{v.p=v.p.map(c=>c*g.K);});
-  return {verts,tris,logoTris,ao};
+  return {verts,tris,logoTris,ao,tint};
 }
 
 /* ================= state ================= */
@@ -1032,6 +1048,8 @@ function rebuildBody(){
   mesh.pos0=new Float32Array(mesh.verts.length*3);
   mesh.verts.forEach((v,i)=>{mesh.pos0.set(v.p,i*3);});
   mesh.skinned=new Float32Array(mesh.verts.length*3);
+  mesh.smoothTris=[];mesh.tris.forEach((t,i)=>{if(t.sm)mesh.smoothTris.push(i);});
+  mesh.vn=new Float32Array(mesh.verts.length*3);
   // keep the figure the same height above floor when switching gender
   pose.root[1]=pose.root[1]*(rest[0][1]/oldRestY);
 }
@@ -1536,7 +1554,15 @@ function render(now){
   skinInto(mesh.skinned,Wd,dp.scl);
   const nT=mesh.tris.length;
   if(!bodyData||bodyData.length!==nT*27) bodyData=new Float32Array(nT*27);
-  const sp=mesh.skinned,out=bodyData,aoOn=state.ao&&mesh.ao;
+  const sp=mesh.skinned,out=bodyData,aoOn=state.ao&&mesh.ao,tint=mesh.tint,vn=mesh.vn;
+  // smooth vertex normals for the face (only the triangles flagged smooth): area-weighted average of the faces around each vertex
+  vn.fill(0);
+  for(const t of mesh.smoothTris){
+    const tr=mesh.tris[t],a=tr.i[0]*3,b=tr.i[1]*3,c=tr.i[2]*3;
+    const ux=sp[b]-sp[a],uy=sp[b+1]-sp[a+1],uz=sp[b+2]-sp[a+2],vx=sp[c]-sp[a],vy=sp[c+1]-sp[a+1],vz=sp[c+2]-sp[a+2];
+    const fx=uy*vz-uz*vy,fy=uz*vx-ux*vz,fz=ux*vy-uy*vx;
+    for(let k=0;k<3;k++){const q=tr.i[k]*3;vn[q]+=fx;vn[q+1]+=fy;vn[q+2]+=fz;}
+  }
   let o=0;
   for(let t=0;t<nT;t++){
     const tr=mesh.tris[t],a=tr.i[0]*3,b=tr.i[1]*3,c=tr.i[2]*3;
@@ -1544,10 +1570,14 @@ function render(now){
     let nx=(by-ay)*(cz-az)-(bz-az)*(cy-ay),ny=(bz-az)*(cx-ax)-(bx-ax)*(cz-az),nz=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
     const l=Math.hypot(nx,ny,nz)||1;nx/=l;ny/=l;nz/=l;
     const col=slotLin[tr.slot];
-    const k0=aoOn?mesh.ao[tr.i[0]]:1,k1=aoOn?mesh.ao[tr.i[1]]:1,k2=aoOn?mesh.ao[tr.i[2]]:1;
-    out[o++]=ax;out[o++]=ay;out[o++]=az;out[o++]=nx;out[o++]=ny;out[o++]=nz;out[o++]=col[0]*k0;out[o++]=col[1]*k0;out[o++]=col[2]*k0;
-    out[o++]=bx;out[o++]=by;out[o++]=bz;out[o++]=nx;out[o++]=ny;out[o++]=nz;out[o++]=col[0]*k1;out[o++]=col[1]*k1;out[o++]=col[2]*k1;
-    out[o++]=cx;out[o++]=cy;out[o++]=cz;out[o++]=nx;out[o++]=ny;out[o++]=nz;out[o++]=col[0]*k2;out[o++]=col[1]*k2;out[o++]=col[2]*k2;
+    for(let k=0;k<3;k++){
+      const vi=tr.i[k],q=vi*3;
+      let wx=nx,wy=ny,wz=nz;
+      if(tr.sm){const l2=Math.hypot(vn[q],vn[q+1],vn[q+2])||1;wx=vn[q]/l2;wy=vn[q+1]/l2;wz=vn[q+2]/l2;}
+      const m=aoOn?mesh.ao[vi]:1;
+      out[o++]=sp[q];out[o++]=sp[q+1];out[o++]=sp[q+2];out[o++]=wx;out[o++]=wy;out[o++]=wz;
+      out[o++]=col[0]*m*tint[q];out[o++]=col[1]*m*tint[q+1];out[o++]=col[2]*m*tint[q+2];
+    }
   }
   gl.bindBuffer(gl.ARRAY_BUFFER,bodyBuf);gl.bufferData(gl.ARRAY_BUFFER,out,gl.DYNAMIC_DRAW);
   bodyCount=nT*3;
@@ -1991,7 +2021,7 @@ async function buildGLB(includeAnim){
   // Build a skinned primitive from an indexed triangle list. Faces are flat-shaded, so each corner carries its face
   // normal; identical corners (same position, normal, UV, weights, shade) are merged and the primitive is indexed.
   // Quantised where the core glTF spec allows it: UVs as normalised uint16, weights/shading as normalised uint8.
-  function makePrim(tris,uvFn,aoArr){
+  function makePrim(tris,uvFn,mulFn,smoothN){
     const quantW=bw=>{
       const q=bw.map(w=>Math.round(w*255));
       const d=255-q.reduce((x,y)=>x+y,0);
@@ -2001,19 +2031,20 @@ async function buildGLB(includeAnim){
     const map=new Map(), P=[],Nn=[],U=[],J=[],Wt=[],C=[],idx=[];
     tris.forEach(t=>{
       const a=verts[t.i[0]].p,b=verts[t.i[1]].p,c=verts[t.i[2]].p;
-      const n=v3.norm(v3.cross(v3.sub(b,a),v3.sub(c,a)));
+      const fn=v3.norm(v3.cross(v3.sub(b,a),v3.sub(c,a)));
       for(let k=0;k<3;k++){
         const vt=verts[t.i[k]],u=uvFn(t,k),w8=quantW(vt.bw);
-        const sh=aoArr?Math.round(255*aoArr[t.i[k]]):255;
+        const n=(t.sm&&smoothN)?smoothN[t.i[k]]:fn;
+        const mul=mulFn?mulFn(t.i[k]).map(v=>Math.round(255*clamp(v,0,1))):[255,255,255];
         const key=[vt.p[0].toFixed(5),vt.p[1].toFixed(5),vt.p[2].toFixed(5),n[0].toFixed(4),n[1].toFixed(4),n[2].toFixed(4),
-                   u[0].toFixed(5),u[1].toFixed(5),vt.bi.join(','),w8.join(','),sh].join('|');
+                   u[0].toFixed(5),u[1].toFixed(5),vt.bi.join(','),w8.join(','),mul.join(',')].join('|');
         let id=map.get(key);
         if(id===undefined){
           id=P.length/3;map.set(key,id);
           P.push(vt.p[0],vt.p[1],vt.p[2]);Nn.push(n[0],n[1],n[2]);
           U.push(Math.round(u[0]*65535),Math.round(u[1]*65535));
           J.push(vt.bi[0],vt.bi[1],vt.bi[2],vt.bi[3]);Wt.push(w8[0],w8[1],w8[2],w8[3]);
-          C.push(sh,sh,sh,255);
+          C.push(mul[0],mul[1],mul[2],255);
         }
         idx.push(id);
       }
@@ -2028,13 +2059,22 @@ async function buildGLB(includeAnim){
       JOINTS_0:addAcc(addView(new Uint8Array(J),34962),5121,N,'VEC4'),
       WEIGHTS_0:addAcc(addView(new Uint8Array(Wt),34962),5121,N,'VEC4',{normalized:true})
     };
-    if(aoArr) out.COLOR_0=addAcc(addView(new Uint8Array(C),34962),5121,N,'VEC4',{normalized:true});
+    if(mulFn) out.COLOR_0=addAcc(addView(new Uint8Array(C),34962),5121,N,'VEC4',{normalized:true});
     const big=N>65535;
     const indices=addAcc(addView(new Uint8Array((big?new Uint32Array(idx):new Uint16Array(idx)).buffer),34963),big?5125:5123,idx.length,'SCALAR');
     return {attrs:out,indices};
   }
   const slotUV=(t,k)=>[((t.slot%8)+.5)/8,(Math.floor(t.slot/8)+.5)/4];
-  const bodyPrim=makePrim(mesh.tris,slotUV,state.ao?mesh.ao:null);
+  // rest-pose smooth normals for the flagged (face) triangles
+  const restVN=verts.map(()=>[0,0,0]);
+  mesh.tris.forEach(t=>{
+    if(!t.sm) return;
+    const a=verts[t.i[0]].p,b=verts[t.i[1]].p,c=verts[t.i[2]].p, f=v3.cross(v3.sub(b,a),v3.sub(c,a));
+    t.i.forEach(i=>{restVN[i][0]+=f[0];restVN[i][1]+=f[1];restVN[i][2]+=f[2];});
+  });
+  const smoothN=restVN.map(v=>v3.norm(v));
+  const bodyMul=vi=>{const a=state.ao?mesh.ao[vi]:1;return [a*mesh.tint[vi*3],a*mesh.tint[vi*3+1],a*mesh.tint[vi*3+2]];};
+  const bodyPrim=makePrim(mesh.tris,slotUV,bodyMul,smoothN);
   const ibm=new Float32Array(NB*16);
   for(let i=0;i<NB;i++){const m=[1,0,0,0,0,1,0,0,0,0,1,0,-restWorld.P[i][0],-restWorld.P[i][1],-restWorld.P[i][2],1];ibm.set(m,i*16);}
   const aIbm=addAcc(addView(new Uint8Array(ibm.buffer)),5126,NB,'MAT4');
