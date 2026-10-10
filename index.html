@@ -403,9 +403,15 @@ function buildMesh(gender,style){
     rY(1.710,.078,.092,W1(B.head),S.skin),
     rY(1.765,.058,.070,W1(B.head),S.skin)
   ]);
-  box([.034,1.655,.092],[.009,.010,.006],W1(B.eyeL),S.eye);
-  box([-.034,1.655,.092],[.009,.010,.006],W1(B.eyeR),S.eye);
-  box([0,1.578,.085],[.018,.004,.004],W1(B.head),S.mouth);
+  // round black eyes with a small white highlight at the centre; both are weighted to the eye bone so they blink together
+  [[.034,B.eyeL],[-.034,B.eyeR]].forEach(([ex,eb])=>{
+    loft([rZ(ex,1.655,.0900,.0110,.0110,W1(eb),S.eye),rZ(ex,1.655,.0975,.0110,.0110,W1(eb),S.eye)],{n:10});
+    loft([rZ(ex,1.655,.0960,.0036,.0036,W1(eb),S.sole),rZ(ex,1.655,.0985,.0036,.0036,W1(eb),S.sole)],{n:6});
+  });
+  // mouth: a slightly upturned smile built from three steps
+  box([0,1.5755,.0845],[.012,.0034,.004],W1(B.head),S.mouth);
+  box([.0185,1.5805,.0850],[.0075,.0034,.004],W1(B.head),S.mouth);
+  box([-.0185,1.5805,.0850],[.0075,.0034,.004],W1(B.head),S.mouth);
   box([.081,1.645,-.005],[.006,.018,.015],W1(B.head),S.skin);
   box([-.081,1.645,-.005],[.006,.018,.015],W1(B.head),S.skin);
 
@@ -546,7 +552,7 @@ const state={
   logoFront:'none', logoBack:'none',
   gender:'male', skin:'#e8b48f', hairStyle:'short', hair:'#3b2a1f',
   sleeve:'short', top:'#2f7de1', legs:'long', bottom:'#2b3140', shoes:'#e9e9ee',
-  eyes:'#14151c', mouth:'#a85a52'
+  eyes:'#0b0c10', mouth:'#8c3a3a'
 };
 const view={chair:false,pin:true,joints:true,clip:null,mode:'move'};
 
@@ -991,9 +997,9 @@ let dirty=true, previewPaused=false;
 function markDirty(){dirty=true;}
 let slotLin=[];
 function updateSlotColors(){
-  slotLin=[toLin(state.skin),toLin(state.hair),toLin(state.eyes),toLin(state.top),toLin(state.bottom),toLin(state.shoes),toLin(state.mouth),toLin('#f0f0f0')];
+  slotLin=[toLin(state.skin),toLin(state.hair),toLin(state.eyes),toLin(state.top),toLin(state.bottom),toLin(state.shoes),toLin(state.mouth),toLin('#ffffff')];
 }
-const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#f0f0f0'];
+const slotHex=()=>[state.skin,state.hair,state.eyes,state.top,state.bottom,state.shoes,state.mouth,'#ffffff'];
 let bodyData=null,bodyCount=0;
 function displayPose(now){
   if(view.clip&&!previewPaused&&!drag){
