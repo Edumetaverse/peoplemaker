@@ -641,7 +641,7 @@ function buildMesh(gender,style){
              [1.592,.0765,.088,.0035,.006]],[1,2]);
     } else if(bd==='full'){
       shell([[1.488,.046,.056,.011,.012],[1.512,.056,.066,.010,.019],[1.545,.068,.076,.008,.014],
-             [1.572,.076,.087,.005,.010],[1.595,.079,.090,.0035,.007],[1.610,.0805,.092,.0025,.004]],[2,3]);
+             [1.560,.072,.083,.006,.010],[1.580,.0775,.088,.0045,.007],[1.597,.079,.090,.0035,.004]],[3]);
     }
   }
   // ears: tapered, slightly swept back
@@ -1043,7 +1043,7 @@ function buildMesh(gender,style){
     const bl=Math.exp(-(dx*dx+dy*dy))*0;        // (blush is painted into the face texture)
     let r=1,g2=1-bl*.20,b2=1-bl*.23;
     if(stubbleOn){                                                       // stubble: lower face darkens and cools
-      const st=sstep(1.630,1.590,p[1])*sstep(-.05,.02,p[2]);
+      const st=sstep(1.602,1.572,p[1])*sstep(-.05,.02,p[2]);
       r-=st*.24;g2-=st*.26;b2-=st*.24;
     }
     tint[i*3]=r;tint[i*3+1]=g2;tint[i*3+2]=b2;
@@ -1175,8 +1175,8 @@ function paintFace(st){
     const sstep=(e0,e1,x)=>{const t=Math.max(0,Math.min(1,(x-e0)/(e1-e0)));return t*t*(3-2*t);};
     for(let i=0;i<14000;i++){
       const x=(rnd()-.5)*.150, y=1.522+rnd()*.115;
-      let dens=sstep(1.628,1.585,y)*(1-sstep(.060,.078,Math.abs(x)));
-      if(y>1.588&&y<1.612&&Math.abs(x)<.030) dens*=.8;
+      let dens=sstep(1.600,1.570,y)*(1-sstep(.060,.078,Math.abs(x)));
+      if(y>1.588&&Math.abs(x)<.030) dens*=.8;
       if(y>1.566&&y<1.588&&Math.abs(x)<.022) dens*=.12;
       if(rnd()>dens) continue;
       const q=ftPx(x,y);g.fillStyle=rgba(sc,.20+rnd()*.30);g.beginPath();g.arc(q[0],q[1],(.00016+rnd()*.00022)*FPX,0,6.2832);g.fill();
