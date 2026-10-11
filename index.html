@@ -773,7 +773,7 @@ function buildMesh(gender,style){
       const t=(k+.5)/nTuft, ph=k*2.399963, y=1.772-.098*Math.pow(t,.78);
       const fa=Math.abs(((ph*180/Math.PI+540)%360)-180);                       // degrees from straight ahead
       if(fa<42&&y<1.738) continue;                                              // keep the forehead clear
-      if(fa>=42&&fa<100&&y<1.690) continue;                                     // and the ears
+      if(fa>=42&&fa<110&&y<1.712) continue;                                     // and the ears
       const r=headR(Math.min(y,1.756)), dome=y>1.756?Math.sqrt(Math.max(0,1-Math.pow((y-1.756)/.026,2))):1;
       const bx=(r.rx+.009)*dome*Math.sin(ph), bz=r.cz+(r.rz+.009)*dome*Math.cos(ph);
       let n=[bx/Math.pow(r.rx+.009,2),(y-1.645)/Math.pow(.13,2),(bz-r.cz)/Math.pow(r.rz+.009,2)];
@@ -802,12 +802,12 @@ function buildMesh(gender,style){
     cap(T0,{up:.056,side:.098,nape:.104,vol:.014,sweep:.30,ear:false,flare:.024,curl:.012});
   }
   else if(hs==='long'){
-    cap(T0,{up:.056,side:.030,nape:.125,vol:.004,sweep:.55});
+    cap(T0,{up:.056,side:.075,nape:.125,vol:.008,sweep:.55});
     // long back mass in layers; the front vertices are pulled inside so it falls behind and beside the face
     const spec=[[1.660,.094,.092,0,wh_],[1.600,.096,.084,-.012,wh_],[1.540,.095,.072,-.040,wh_],
                 [1.480,.094,.054,-.085,W2(B.head,B.chest)],[1.420,.095,.042,-.125,W2(B.head,B.chest)],
                 [1.360,.094,.036,-.143,W1(B.chest)],[1.300,.090,.032,-.148,W1(B.chest)],[1.236,.080,.028,-.148,W1(B.chest)]];
-    hloft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    hloft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>0?[0,0,-.9*rz*HK*c]:[0,0,0])),{n:HAIRN});
     if(!HH){
       [1,-1].forEach(sd=>{
         lock([[sd*.078,1.668,.040],[sd*.092,1.600,.040],[sd*.100,1.520,.046],[sd*.104,1.448,.062],[sd*.100,1.372,zcSh(1.372)],[sd*.094,1.300,zcSh(1.300)]],.016,.008,5,S.hair,1.7);
@@ -816,17 +816,17 @@ function buildMesh(gender,style){
     }
   }
   else if(hs==='sidepart'){
-    cap(T0,{up:.066,side:.022,nape:.125,vol:.004,sweep:.9});
+    cap(T0,{up:.066,side:.075,nape:.125,vol:.008,sweep:.9});
     // long, smooth back mass to just below the shoulders; its front vertices are pulled inside the head
     const spec=[[1.660,.104,.092,0,wh_],[1.600,.110,.088,-.012,wh_],[1.540,.104,.078,-.040,wh_],
                 [1.480,.096,.060,-.085,W2(B.head,B.chest)],[1.420,.100,.048,-.125,W2(B.head,B.chest)],
                 [1.360,.104,.040,-.143,W1(B.chest)],[1.300,.104,.036,-.148,W1(B.chest)],[1.252,.092,.030,-.144,W1(B.chest)]];
-    hloft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    hloft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>0?[0,0,-.9*rz*HK*c]:[0,0,0])),{n:HAIRN});
     if(!HH){
       // the long side: swept across the forehead corner and down in front of the shoulder
       [0,1,2].forEach(k=>{
         const o=.006+.005*k, dx=-.0070*k, fz=.004*k;
-        const P=[[-.034,1.748],[-.056,1.726],[-.074,1.700],[-.088,1.670]].map(([x,y])=>[x+dx*.5,y,ezH(x,y,o)]);
+        const P=[[-.030,1.752,-.016],[-.052,1.730,-.004],[-.072,1.702,o*.6],[-.088,1.672,o]].map(([x,y,of])=>[x+dx*.5,y,ezH(x,y,of)]);
         P.push([-.102+dx,1.610,.030+fz],[-.112+dx,1.548,.044+fz],[-.118+dx,1.480,.062+fz],[-.120+dx,1.410,zcSh(1.410)+fz],
                [-.114+dx,1.345,zcSh(1.345)+.004+fz],[-.108+dx-.010,1.285,zcSh(1.285)+.006+fz]);
         lock(P,.016,.007,6,k===2?S.hairHi:S.hair,1.25);
@@ -834,17 +834,17 @@ function buildMesh(gender,style){
     }
   }
   else if(hs==='wavy'){
-    cap(T0,{up:.070,side:.022,nape:.120,vol:.014,ear:false,part:true,partDeg:0});
+    cap(T0,{up:.070,side:.075,nape:.120,vol:.014,ear:false,part:true,partDeg:0});
     // shoulder-length back mass with a gentle sideways swing from ring to ring (the waves)
     const spec=[[1.660,.094,.092,-.000,wh_],[1.600,.097,.086,-.012,wh_],[1.540,.098,.076,-.036,wh_],
                 [1.480,.100,.062,-.070,W2(B.head,B.chest)],[1.430,.104,.052,-.092,W2(B.head,B.chest)],
                 [1.388,.106,.046,-.102,W1(B.chest)],[1.350,.098,.040,-.100,W1(B.chest)],[1.322,.082,.030,-.096,W1(B.chest)]];
-    hloft(spec.map(([y,rx,rz,cz,w],i)=>rY(y,rx,rz,w,S.hair,.007*Math.sin(i*1.8),cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    hloft(spec.map(([y,rx,rz,cz,w],i)=>rY(y,rx,rz,w,S.hair,.007*Math.sin(i*1.8),cz,(s2,c)=>c>0?[0,0,-.9*rz*HK*c]:[0,0,0])),{n:HAIRN});
     if(!HH){
       // two waved curtains per side, starting under the scalp edge and falling over the shoulder
       [1,-1].forEach(sd=>[0,1].forEach(k=>{
         const o=.008+.005*k, amp=.005+.002*k, ph=k*1.7+(sd>0?0:1.1);
-        const P=[[.046,1.746],[.064,1.722],[.080,1.694],[.092,1.664]].map(([x,y])=>[sd*x,y,ezH(x,y,o)]);
+        const P=[[.040,1.750,-.016],[.060,1.726,-.004],[.078,1.696,o*.6],[.092,1.664,o]].map(([x,y,of])=>[sd*x,y,ezH(x,y,of)]);
         [1.612,1.552,1.490,1.428,1.372,1.318].forEach((y,i)=>{
           const f=i/5, wv=Math.sin(i*1.7+ph)*amp*(.4+f);
           const zz=i<3?(.036-.007*i):Math.min(zcSh(y),.062)-.004*k;
