@@ -669,7 +669,7 @@ function buildMesh(gender,style){
   // rises towards the part and sweeps down over one temple, dips into sideburns, lifts above the ear, then falls to the
   // nape. Vertices below that curve are clamped onto it, so the outline is smooth rather than stepped.
   const scalp=(t,o={})=>{
-    const {up=.052,side=.012,nape=.045,vol=0,sweep=0,ear=true,part=sweep>0,partDeg=12,slot=S.hair,flare=0,curl=.007}=o;
+    const {up=.052,side=.012,nape=.045,vol=0,sweep=0,ear=true,part=sweep>0,partDeg=12,slot=S.hair,flare=0,curl=.007,tufts=0}=o;
     const yF=clamp(1.652+up*.95,1.690,1.762), yS=1.652-side, yN=1.652-nape;
     const yEar=Math.max(yS,1.686);
     const sm=(e0,e1,x)=>{const k=clamp((x-e0)/(e1-e0),0,1);return k*k*(3-2*k);};
@@ -687,8 +687,29 @@ function buildMesh(gender,style){
       return Math.min(y,1.772);
     };
     const hairy=slot===S.hair||slot===S.hairHi;
-    const NC=40, NR=26, yTop=1.784, yMin=Math.min(yN,yS,yF)-.002, ids=[];
+    const NC=tufts?76:40, NR=tufts?46:26, yTop=1.784, yMin=Math.min(yN,yS,yF)-.002, ids=[];
     const ref=[0,1.64,-.004];
+    // surface point of the plain shell at azimuth ph (deg) and height y
+    const surf=(ph,y)=>{
+      const phr=ph*Math.PI/180, r=headR(Math.min(y,1.756));
+      const dome=y>1.756?Math.sqrt(Math.max(0,1-Math.pow((y-1.756)/(yTop-1.756),2))):1;
+      return [(r.rx+t+vol)*dome*Math.sin(phr),y,r.cz-.002+(r.rz+t+vol)*dome*Math.cos(phr),r];
+    };
+    // tuft centres: golden-angle spread over the crown and down the sides; each leans away from the skull and up
+    const tl=[];
+    for(let k=0;k<tufts;k++){
+      const f=(k+.5)/tufts, ph=((k*137.50776+180)%360)-180, y=1.774-.100*Math.pow(f,.78);
+      const fa=Math.abs(ph);
+      if(fa<40&&y<1.738) continue;
+      if(fa>=40&&fa<112&&y<1.712) continue;
+      const q=surf(ph,y), r=q[3];
+      let n=[q[0]/Math.pow(r.rx+t+vol,2),(y-1.645)/Math.pow(.13,2),(q[2]-r.cz)/Math.pow(r.rz+t+vol,2)];
+      const nl=Math.hypot(n[0],n[1],n[2])||1;n=[n[0]/nl,n[1]/nl,n[2]/nl];
+      const j1=Math.sin(k*12.9898)*.30, j2=Math.sin(k*78.233)*.30;
+      let d=[n[0]*.55+j1,n[1]*.55+.85,n[2]*.55+j2+.10];
+      const dl=Math.hypot(d[0],d[1],d[2]);d=[d[0]/dl,d[1]/dl,d[2]/dl];
+      tl.push({c:[q[0],q[1],q[2]],d,H:.034+.020*(((k*7)%5)/4),R:.026+.010*(((k*3)%4)/3)});
+    }
     for(let i=0;i<=NR;i++){
       const row=[], yRow=yTop-(yTop-yMin)*Math.pow(i/NR,.85);
       for(let j=0;j<=NC;j++){
@@ -700,7 +721,16 @@ function buildMesh(gender,style){
         if(part&&y>1.70) g=.0035*Math.exp(-Math.pow((ph-partDeg)/3.5,2));       // the parting line
         const fl=flare*sm(1.64,1.56,y), cu=curl*(1-sm(ye,ye+.04,y));
         const rx=(r.rx+t+vol+fl-cu-g)*dome, rz=(r.rz+t+vol+fl-cu-g)*dome;
-        const id=addV([rx*Math.sin(phr),y,r.cz-.002+rz*Math.cos(phr)],wh_);
+        let px=rx*Math.sin(phr), py=y, pz=r.cz-.002+rz*Math.cos(phr);
+        if(tl.length){
+          let best=0, bd=null;
+          for(const tf of tl){
+            const dx=px-tf.c[0],dy=py-tf.c[1],dz=pz-tf.c[2], dd=Math.sqrt(dx*dx+dy*dy+dz*dz);
+            if(dd<tf.R){const a2=tf.H*Math.pow(1-dd/tf.R,1.0);if(a2>best){best=a2;bd=tf.d;}}
+          }
+          if(bd){const e=best*sm(ye,ye+.025,y);px+=bd[0]*e;py+=bd[1]*e;pz+=bd[2]*e;}
+        }
+        const id=addV([px,py,pz],wh_);
         if(hairy) verts[id].fuv=hairUV(0,j/NC,clamp((yTop-y)/Math.max(.01,yTop-ye),0,1));
         if(j===NC) twins.push([row[0],id]);
         row.push(id);
@@ -765,25 +795,8 @@ function buildMesh(gender,style){
     cap(.0050,{up:.072,side:.026,nape:.045,slot:S.hair,curl:.002});
   }
   else if(hs==='spiky'){
-    cap(T0,{up:.064,side:M?.024:.014,nape:.050,vol:.004,sweep:.25});
-    // ~50 small tufts (2-4 cm) placed over the crown and down the sides to above the ears; each leans away from the
-    // skull and a little up, with a bit of jitter so the coat looks tousled rather than combed
-    const nTuft=42;
-    for(let k=0;k<nTuft;k++){
-      const t=(k+.5)/nTuft, ph=k*2.399963, y=1.772-.098*Math.pow(t,.78);
-      const fa=Math.abs(((ph*180/Math.PI+540)%360)-180);                       // degrees from straight ahead
-      if(fa<42&&y<1.738) continue;                                              // keep the forehead clear
-      if(fa>=42&&fa<110&&y<1.712) continue;                                     // and the ears
-      const r=headR(Math.min(y,1.756)), dome=y>1.756?Math.sqrt(Math.max(0,1-Math.pow((y-1.756)/.026,2))):1;
-      const bx=(r.rx+.009)*dome*Math.sin(ph), bz=r.cz+(r.rz+.009)*dome*Math.cos(ph);
-      let n=[bx/Math.pow(r.rx+.009,2),(y-1.645)/Math.pow(.13,2),(bz-r.cz)/Math.pow(r.rz+.009,2)];
-      n=v3.norm(n);
-      const j1=Math.sin(k*12.9898)*.35, j2=Math.sin(k*78.233)*.35;
-      let d=v3.norm([n[0]*.80+j1,n[1]*.80+.62,n[2]*.80+j2+.12]);
-      const L=.034+.020*(((k*7)%5)/4);
-      const b0=[bx-n[0]*.004,y-n[1]*.004,bz-n[2]*.004];
-      lock([b0,[b0[0]+d[0]*L*.5,b0[1]+d[1]*L*.5,b0[2]+d[2]*L*.5],[b0[0]+d[0]*L,b0[1]+d[1]*L,b0[2]+d[2]*L]],.0165,.0030,5,k%5?S.hair:S.hairHi);
-    }
+    // one continuous surface: the scalp itself is pulled out into ~40 short tousled tufts (2-5 cm), no separate pieces
+    cap(T0,{up:.064,side:M?.024:.014,nape:.050,vol:.004,sweep:.25,tufts:46});
   }
   else if(hs==='mohawk'){
     // shaved sides, one upright crest from the forehead to the nape
