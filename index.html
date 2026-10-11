@@ -92,7 +92,7 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
     </div>
     <label class="lbl">Hair style</label>
     <select id="hairStyle">
-      <option value="short">Short</option><option value="buzz">Buzz cut</option><option value="quiff">Quiff</option>
+      <option value="short">Short</option><option value="buzz">Buzz cut</option>
       <option value="spiky">Spiky</option><option value="mohawk">Mohawk</option><option value="bob">Bob</option>
       <option value="long">Long</option><option value="sidepart">Side part (long, straight)</option><option value="wavy">Wavy (centre part)</option><option value="ponytail">Ponytail</option><option value="bun">Bun</option>
       <option value="pigtails">Pigtails</option><option value="afro">Afro</option><option value="none">Bald</option>
@@ -641,7 +641,8 @@ function buildMesh(gender,style){
   /* ---- hair ---- */
   const hloft=(rings,o={})=>loft(rings,{...o,hair:true});
   let hs=style.hairStyle;
-  if(hat!=='none'&&['spiky','mohawk','quiff','afro','bun'].includes(hs)) hs='short';
+  if(hs==='quiff') hs='short';
+  if(hat!=='none'&&['spiky','mohawk','afro','bun'].includes(hs)) hs='short';
   const HH=hat!=='none';                              // under a hat the hair is just a thin cap
   const wh_=W1(B.head);
   const HAIRN=18, HK=1/Math.cos(Math.PI/HAIRN);
@@ -763,26 +764,25 @@ function buildMesh(gender,style){
     // clippered to 1-3 mm: a hair-coloured shadow on the scalp, no volume, a clean natural hairline
     cap(.0050,{up:.072,side:.026,nape:.045,slot:S.hair,curl:.002});
   }
-  else if(hs==='quiff'){
-    // short back and sides; the long front is lifted and swept back over the crown
-    cap(T0,{up:.060,side:M?.024:.014,nape:.055,vol:.004,sweep:.2});
-    const path=[[1.704,.092],[1.742,.098],[1.780,.088],[1.802,.056],[1.808,.010],[1.794,-.034]];
-    const radius=[.014,.022,.028,.028,.024,.016], wide=[.040,.064,.074,.074,.066,.050];
-    hloft(path.map(([y,z],i)=>{
-      const a2=path[Math.max(0,i-1)], b2=path[Math.min(path.length-1,i+1)];
-      let dy=b2[0]-a2[0], dz=b2[1]-a2[1];const l=Math.hypot(dy,dz)||1;dy/=l;dz/=l;
-      return {c:[0,y,z],U:[wide[i],0,0],V:[0,-dz*radius[i],dy*radius[i]],w:wh_,slot:S.hair};
-    }),{n:12});
-  }
   else if(hs==='spiky'){
-    cap(T0,{up:.072,side:M?.026:.014,nape:.050,vol:.002});
-    // gelled tufts all over the crown, leaning outwards (golden-angle placement so they never look gridded)
-    for(let k=0;k<24;k++){
-      const ang=k*2.399963, rad=.006+.064*Math.sqrt(k/23);
-      const bx=rad*Math.sin(ang), bz=-.004+rad*Math.cos(ang)*1.12, by=1.742+.034*(1-Math.pow(rad/.070,2));
-      const len=.056+.036*(((k*7)%5)/4), lean=.5+.7*rad/.07;
-      const sx=bx>=0?1:-1, sz=bz>-.004?1:-1;
-      lock([[bx,by-.004,bz],[bx*(1+.30*lean)+sx*.004,by+len*.55,bz+sz*.008*lean],[bx*(1+.8*lean)+sx*.008,by+len,bz*(1+.5*lean)+sz*.004]],.024,.003,5,k%3?S.hair:S.hairHi);
+    cap(T0,{up:.064,side:M?.024:.014,nape:.050,vol:.004,sweep:.25});
+    // ~50 small tufts (2-4 cm) placed over the crown and down the sides to above the ears; each leans away from the
+    // skull and a little up, with a bit of jitter so the coat looks tousled rather than combed
+    const nTuft=42;
+    for(let k=0;k<nTuft;k++){
+      const t=(k+.5)/nTuft, ph=k*2.399963, y=1.772-.098*Math.pow(t,.78);
+      const fa=Math.abs(((ph*180/Math.PI+540)%360)-180);                       // degrees from straight ahead
+      if(fa<42&&y<1.738) continue;                                              // keep the forehead clear
+      if(fa>=42&&fa<100&&y<1.690) continue;                                     // and the ears
+      const r=headR(Math.min(y,1.756)), dome=y>1.756?Math.sqrt(Math.max(0,1-Math.pow((y-1.756)/.026,2))):1;
+      const bx=(r.rx+.009)*dome*Math.sin(ph), bz=r.cz+(r.rz+.009)*dome*Math.cos(ph);
+      let n=[bx/Math.pow(r.rx+.009,2),(y-1.645)/Math.pow(.13,2),(bz-r.cz)/Math.pow(r.rz+.009,2)];
+      n=v3.norm(n);
+      const j1=Math.sin(k*12.9898)*.35, j2=Math.sin(k*78.233)*.35;
+      let d=v3.norm([n[0]*.80+j1,n[1]*.80+.62,n[2]*.80+j2+.12]);
+      const L=.034+.020*(((k*7)%5)/4);
+      const b0=[bx-n[0]*.004,y-n[1]*.004,bz-n[2]*.004];
+      lock([b0,[b0[0]+d[0]*L*.5,b0[1]+d[1]*L*.5,b0[2]+d[2]*L*.5],[b0[0]+d[0]*L,b0[1]+d[1]*L,b0[2]+d[2]*L]],.0165,.0030,5,k%5?S.hair:S.hairHi);
     }
   }
   else if(hs==='mohawk'){
