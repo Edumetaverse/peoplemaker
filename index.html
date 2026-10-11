@@ -299,7 +299,7 @@ function computeWorld(rot,root,rest){
 /* ================= body mesh ================= */
 function buildMesh(gender,style){
   const g=GENDERS[gender], F=gender==='female';
-  const verts=[], tris=[];
+  const verts=[], tris=[], twins=[];
   const norm=infl=>{ // -> {bi:[4],bw:[4]}
     const a=infl.slice().sort((x,y)=>y[1]-x[1]).slice(0,4); let s=0;a.forEach(e=>s+=e[1]);
     const bi=[0,0,0,0],bw=[0,0,0,0];a.forEach((e,i)=>{bi[i]=e[0];bw[i]=e[1]/s;});
@@ -317,33 +317,46 @@ function buildMesh(gender,style){
 
   function loft(rings,o={}){
     const n=o.n||8,k=1/Math.cos(Math.PI/n),idx=[];
-    rings.forEach(r=>{
-      const row=[];
+    // hair: smooth shaded and textured from the hair tiles of the face texture; the seam column is duplicated so
+    // the texture does not wrap backwards across the last quad
+    const hairy=!!o.hair&&(rings[0].slot===SL.hair||rings[0].slot===SL.hairHi), tile=rings[0].slot===SL.hairHi?1:0;
+    rings.forEach((r,ri)=>{
+      const row=[], tv=ri/Math.max(1,rings.length-1);
       for(let j=0;j<n;j++){
         const th=(j+.5)*2*Math.PI/n,s=Math.sin(th),c=Math.cos(th);
         let p=[r.c[0]+(r.U[0]*s+r.V[0]*c)*k, r.c[1]+(r.U[1]*s+r.V[1]*c)*k, r.c[2]+(r.U[2]*s+r.V[2]*c)*k];
         if(r.tw){const t=r.tw(s,c);p=[p[0]+t[0],p[1]+t[1],p[2]+t[2]];}
-        row.push(addV(p,r.w));
+        const id=addV(p,r.w);
+        if(hairy) verts[id].fuv=hairUV(tile,j/n,tv);
+        row.push(id);
+      }
+      if(hairy){
+        const id0=row[0], id=addV(verts[id0].p,r.w);
+        verts[id].fuv=hairUV(tile,1,tv);twins.push([id0,id]);row.push(id);
       }
       idx.push(row);
     });
+    const smo=o.smooth||hairy, fcAll=!!o.fc||hairy;
     for(let i=0;i<rings.length-1;i++){
       const ref=mid(rings[i].c,rings[i+1].c),slot0=rings[i].slot;
       for(let j=0;j<n;j++){
-        const a=idx[i][j],b=idx[i][(j+1)%n],c=idx[i+1][(j+1)%n],d=idx[i+1][j];
-        const ov=o.cell?o.cell(i,j):undefined, isFc=(ov==='fc')||!!o.fc, slot=(ov!==undefined&&ov!=='fc')?ov:slot0;
+        const jn=hairy?j+1:(j+1)%n;
+        const a=idx[i][j],b=idx[i][jn],c=idx[i+1][jn],d=idx[i+1][j];
+        const ov=o.cell?o.cell(i,j):undefined, isFc=(ov==='fc')||fcAll, slot=(ov!==undefined&&ov!=='fc')?ov:slot0;
         if(slot===null) continue;
-        addTri(a,b,c,slot,ref,o.smooth,isFc);addTri(a,c,d,slot,ref,o.smooth,isFc);
+        addTri(a,b,c,slot,ref,smo,isFc);addTri(a,c,d,slot,ref,smo,isFc);
       }
     }
     const last=rings.length-1;
     if(o.capStart!==false){
       const c=addV(rings[0].c,rings[0].w);
-      for(let j=0;j<n;j++) addTri(c,idx[0][j],idx[0][(j+1)%n],rings[0].slot,rings[1].c,o.smooth,!!o.fc);
+      if(hairy) verts[c].fuv=hairUV(tile,.5,0);
+      for(let j=0;j<n;j++) addTri(c,idx[0][j],idx[0][(j+1)%n],rings[0].slot,rings[1].c,smo,fcAll);
     }
     if(o.capEnd!==false){
       const c=addV(rings[last].c,rings[last].w),slot=o.endSlot!==undefined?o.endSlot:rings[last-1].slot;
-      for(let j=0;j<n;j++) addTri(c,idx[last][j],idx[last][(j+1)%n],slot,rings[last-1].c,o.smooth,!!o.fc);
+      if(hairy) verts[c].fuv=hairUV(tile,.5,1);
+      for(let j=0;j<n;j++) addTri(c,idx[last][j],idx[last][(j+1)%n],slot,rings[last-1].c,smo,fcAll);
     }
   }
   function box(c,h,w,slot){
@@ -615,35 +628,6 @@ function buildMesh(gender,style){
     bar([-.0250,-.0125,0,.0125,.0250],1.5790,[.0010,.0002,-.0004,.0002,.0010],[.0006,.0018,.0022,.0018,.0006],.0022,.0010);
     bar([-.0210,-.0105,0,.0105,.0210],1.5736,[.0030,.0004,-.0004,.0004,.0030],[.0006,.0030,.0036,.0030,.0006],.0026,.0008);
   }
-  // beards (male only): follow the jaw, with an opening around the lips
-  if(!F&&style.beard&&style.beard!=='none'&&style.beard!=='stubble'){
-    const bd=style.beard, wh=W1(B.head), kk=1/Math.cos(Math.PI/8);
-    const moustache=()=>{
-      [1,-1].forEach(sd=>{
-        box([sd*.0105,1.5868,faceZ(.0105,1.5868)+.0036],[.0105,.0032,.0040],wh,S.hair);
-        box([sd*.0235,1.5846,faceZ(.0235,1.5846)+.0032],[.0052,.0034,.0036],wh,S.hair);
-      });
-    };
-    const shell=(spec,holeBands)=>{
-      const rings=spec.map(([y,rx0,rz0,cz,dz])=>rY(y,rx0+.009,rz0+.007,wh,S.hair,0,cz,(s,c)=>{
-        const rx=rx0+.009, rz=rz0+.007;
-        if(c<-.6) return [-.5*rx*kk*s,0,-rz*kk*c];       // pull the rearmost vertices in under the jaw
-        return [0,0,dz*Math.max(0,c)];
-      }));
-      loft(rings,{cell:(i,j)=>(j===7&&holeBands.includes(i))?null:undefined});
-    };
-    if(bd==='moustache'||bd==='goatee'||bd==='short'||bd==='full') moustache();
-    if(bd==='goatee'){
-      loft([rY(1.498,.014,.020,wh,S.hair,0,.066),rY(1.522,.020,.026,wh,S.hair,0,.067),
-            rY(1.548,.022,.026,wh,S.hair,0,.068),rY(1.568,.018,.022,wh,S.hair,0,.070)],{n:6});
-    } else if(bd==='short'){
-      shell([[1.512,.054,.064,.010,.019],[1.545,.066,.073,.008,.013],[1.572,.073,.084,.005,.009],
-             [1.592,.0765,.088,.0035,.006]],[1,2]);
-    } else if(bd==='full'){
-      shell([[1.488,.046,.056,.011,.012],[1.512,.056,.066,.010,.019],[1.545,.068,.076,.008,.014],
-             [1.560,.072,.083,.006,.010],[1.580,.0775,.088,.0045,.007],[1.597,.079,.090,.0035,.004]],[3]);
-    }
-  }
   // ears: tapered, slightly swept back
   [1,-1].forEach(sd=>{
     const ex=F?.0105:.004;
@@ -655,11 +639,12 @@ function buildMesh(gender,style){
   });
 
   /* ---- hair ---- */
+  const hloft=(rings,o={})=>loft(rings,{...o,hair:true});
   let hs=style.hairStyle;
   if(hat!=='none'&&['spiky','mohawk','quiff','afro','bun'].includes(hs)) hs='short';
   const HH=hat!=='none';                              // under a hat the hair is just a thin cap
   const wh_=W1(B.head);
-  const HAIRN=12, HK=1/Math.cos(Math.PI/HAIRN);
+  const HAIRN=18, HK=1/Math.cos(Math.PI/HAIRN);
   // skull radii at height y, so every hair shape hugs the head whatever its size
   const headR=y=>{
     if(y<=HEAD[0][0]) return {rx:HEAD[0][1],rz:HEAD[0][2],cz:HEAD[0][3]};
@@ -679,31 +664,69 @@ function buildMesh(gender,style){
     return [0,up*Math.pow(f,1.6)-nape*Math.pow(bk,1.2)-side*sd,0];
   };
   const T0=HH?.005:.010;                              // hair thickness
-  const cap=(t,o={})=>{
-    const {up=.052,side=.012,nape=.045,top=1.778,vol=0,slot=S.hair,fl=false,n=HAIRN}=o;
-    const lift=k=>fl?{tw:(s3,c3)=>[0,up*k*Math.pow(Math.max(0,c3),1.6),0]}:{};
-    const rT=headR(1.765);
-    // the rings stay outside the skull all the way up to the crown (1.765) and only then close over it,
-    // otherwise a patch of scalp shows through on top
-    loft([
-      hr(1.652,t,{tw:hairTw(up,side,nape),slot}),
-      hr(1.690,t+vol*.3,{slot,...lift(.80)}),
-      hr(1.726,t+vol*.6,{slot,...lift(.50)}),
-      hr(1.752,t+vol*.5,{slot,...lift(.22)}),
-      hr(1.765,t+vol*.4+.003,{slot}),
-      rY(top-.004,(rT.rx+t)*.80,(rT.rz+t)*.80,wh_,slot,0,rT.cz-.002),
-      rY(top+.004,(rT.rx+t)*.42,(rT.rz+t)*.42,wh_,slot,0,rT.cz-.002)
-    ],{n});
+  // The scalp is a single continuous shell hugging the skull. Its lower edge is a smooth curve y(azimuth): the hairline
+  // rises towards the part and sweeps down over one temple, dips into sideburns, lifts above the ear, then falls to the
+  // nape. Vertices below that curve are clamped onto it, so the outline is smooth rather than stepped.
+  const scalp=(t,o={})=>{
+    const {up=.052,side=.012,nape=.045,vol=0,sweep=0,ear=true,part=sweep>0,partDeg=12,slot=S.hair}=o;
+    const yF=clamp(1.652+up*.95,1.690,1.762), yS=1.652-side, yN=1.652-nape;
+    const yEar=Math.max(yS,1.686);
+    const sm=(e0,e1,x)=>{const k=clamp((x-e0)/(e1-e0),0,1);return k*k*(3-2*k);};
+    const yEnd=ph=>{                                   // degrees, 0 = straight ahead, + = the character's left (+x)
+      const a2=Math.abs(ph); let y;
+      if(a2<=78){
+        const q=a2/78;
+        y=yF+(yS-yF)*sm(0,1,q);
+        if(ph<0) y-=sweep*.030*Math.sin(Math.PI*Math.min(1,q*1.15));
+        if(part) y+=(Math.min(1.762,yF+.028)-y)*Math.exp(-Math.pow((ph-partDeg)/26,2));
+      } else if(a2<=104){
+        const e=sm(78,84,a2)*(1-sm(96,104,a2)), on=(ear&&(sweep<.01||ph>0))?e:0;
+        y=yS+(yEar-yS)*on;
+      } else y=yS+(yN-yS)*sm(100,180,a2);
+      return Math.min(y,1.772);
+    };
+    const hairy=slot===S.hair||slot===S.hairHi;
+    const NC=40, NR=26, yTop=1.784, yMin=Math.min(yN,yS,yF)-.002, ids=[];
+    const ref=[0,1.64,-.004];
+    for(let i=0;i<=NR;i++){
+      const row=[], yRow=yTop-(yTop-yMin)*Math.pow(i/NR,.85);
+      for(let j=0;j<=NC;j++){
+        const jj=j%NC, ph=-180+(jj+.5)*360/NC, phr=ph*Math.PI/180, ye=yEnd(ph);
+        const y=Math.max(yRow,ye);
+        const r=headR(Math.min(y,1.756));
+        const dome=y>1.756?Math.sqrt(Math.max(0,1-Math.pow((y-1.756)/(yTop-1.756),2))):1;
+        let g=0;
+        if(part&&y>1.70) g=.0035*Math.exp(-Math.pow((ph-partDeg)/3.5,2));       // the parting line
+        const rx=(r.rx+t+vol-g)*dome, rz=(r.rz+t+vol-g)*dome;
+        const id=addV([rx*Math.sin(phr),y,r.cz-.002+rz*Math.cos(phr)],wh_);
+        if(hairy) verts[id].fuv=hairUV(0,j/NC,clamp((yTop-y)/Math.max(.01,yTop-ye),0,1));
+        if(j===NC) twins.push([row[0],id]);
+        row.push(id);
+      }
+      ids.push(row);
+    }
+    for(let i=0;i<NR;i++)for(let j=0;j<NC;j++){
+      const a2=ids[i][j],b2=ids[i][j+1],c2=ids[i+1][j+1],d2=ids[i+1][j];
+      addTri(a2,b2,c2,slot,ref,true,hairy);addTri(a2,c2,d2,slot,ref,true,hairy);
+    }
   };
+  const cap=(t,o={})=>scalp(t,o);
   // a tapered lock of hair along a path
-  const lock=(pts,r0,r1,n=5,slot=S.hair,wx=1)=>loft(pts.map((pt,i)=>{
-    const t=pts.length>1?i/(pts.length-1):0,r=r0+(r1-r0)*t;
-    return {c:pt,U:[r*wx,0,0],V:[0,0,r*1.15],w:wh_,slot};
+  const lock=(pts,r0,r1,n=5,slot=S.hair,wx=1)=>hloft(pts.map((pt,i)=>{
+    const t=pts.length>1?i/(pts.length-1):0, r=r0+(r1-r0)*t;
+    const A=pts[Math.max(0,i-1)], Bp=pts[Math.min(pts.length-1,i+1)];
+    const tg=v3.norm(v3.sub(Bp,A));
+    let out=pt[1]>1.70?[pt[0],(pt[1]-1.64)*2,pt[2]]:[pt[0],0,pt[2]];       // away from the head / body axis
+    out=v3.len(out)<1e-4?[0,0,1]:v3.norm(out);
+    let u=v3.cross(tg,out);const ul=v3.len(u);
+    u=ul<1e-4?[1,0,0]:v3.mul(u,1/ul);
+    const v=v3.cross(tg,u);
+    return {c:pt,U:v3.mul(u,r*wx),V:v3.mul(v,r*1.1),w:wh_,slot};
   }),{n});
   // fine streaks that run from the crown down over the skull: they break up the flat cap and add volume.
   // azimuths are measured from straight ahead; the front is left to the fringe
   const streaks=(count,lowFront=1.668,lowBack=1.60,t=.010)=>{
-    if(HH) return;
+    return;
     for(let k=0;k<count;k++){
       const th=(.62+(k+.5)/count*(2*Math.PI-1.24))*(k%2?1:-1)*(k<count/2?1:1);   // spread over the sides and back
       const az=Math.PI*(.30+1.40*((k+.5)/count))*(k%2?1:-1);
@@ -716,28 +739,39 @@ function buildMesh(gender,style){
       lock(pts,.0092,.0056,4,k%3===0?S.hairHi:S.hair);
     }
   };
-  const fringeLocks=(xs,lens,hiEvery=2,y0=1.722,tip=.007)=>xs.forEach((x,i)=>{
-    const ax=Math.abs(x), zf=faceZ(ax,y0)+.009;
-    lock([[x*.75,1.774,.030],[x*.93,1.748,.074],[x,y0,zf],[x*1.02,y0-lens[i],faceZ(ax,y0-lens[i])+tip]],.015,.0055,5,i%hiEvery?S.hairHi:S.hair);
-  });
+  const ezH=(x,y,off)=>{const r=headR(Math.min(Math.max(y,1.53),1.76)),kx=Math.min(.999,Math.abs(x)/(r.rx+off));
+    const dome=y>1.756?Math.sqrt(Math.max(0,1-Math.pow((y-1.756)/.026,2))):1;
+    return r.cz+(r.rz+off)*dome*Math.sqrt(1-kx*kx);};
+  // a fringe swept from a part just off-centre across the forehead to the temple (replaces the old plank row)
+  const fringeLocks=(xs)=>{
+    return;
+    const cnt=Math.max(3,Math.min(5,xs.length-1));
+    for(let k=0;k<cnt;k++){
+      const lo=k/(cnt-1), o=.010+.0035*k;
+      const P=[[.014,1.772],[-.014,1.765],[-.042-.004*lo,1.743],[-.062-.010*lo,1.716],[-.070-.012*lo,1.694+.008*(1-lo)]]
+        .map(([x,y])=>[x,y,ezH(x,y,o)]);
+      lock(P,.013-.0012*k,.0045,6,k===cnt-1?S.hairHi:S.hair,1.25);
+    }
+  };
   const M=!F;
   if(hs==='short'){
-    cap(T0,{up:.054,side:M?.018:.008,nape:.050,vol:.004});
+    cap(T0,{up:.056,side:M?.020:.010,nape:.050,vol:.004,sweep:.55});
     streaks(9,1.670,1.612);
     if(!HH) fringeLocks([-.052,-.031,-.010,.011,.031,.052],[.020,.028,.032,.026,.030,.020]);
   }
-  else if(hs==='buzz') cap(.007,{up:.052,side:.014,nape:.040});
+  else if(hs==='buzz') cap(.007,{up:.052,side:.016,nape:.040});
   else if(hs==='quiff'){
-    cap(T0,{up:.060,side:M?.018:.008,nape:.050,vol:.004});
-    streaks(7,1.670,1.612);
-    // a rounded, swept-back wave over the front of the crown
-    loft([hr(1.712,.010,{dz:.018,sx:.98,sz:.82}),hr(1.750,.017,{dz:.040,sx:.94,sz:.80}),
-          hr(1.790,.020,{dz:.050,sx:.84,sz:.72}),hr(1.816,.017,{dz:.052,sx:.62,sz:.56}),
-          hr(1.830,.010,{dz:.048,sx:.30,sz:.30})],{n:HAIRN});
-    [-1,1].forEach(sd=>lock([[sd*.042,1.744,.040],[sd*.050,1.780,.060],[sd*.040,1.806,.066]],.018,.010,5,S.hairHi,1.3));
+    cap(T0,{up:.060,side:M?.020:.010,nape:.050,vol:.004,sweep:.2});
+    const path=[[1.722,.066],[1.756,.082],[1.790,.074],[1.810,.046],[1.818,.014]];
+    const radius=[.016,.027,.030,.024,.012], wide=[.036,.048,.046,.034,.016];
+    hloft(path.map(([y,z],i)=>{
+      const a2=path[Math.max(0,i-1)], b2=path[Math.min(path.length-1,i+1)];
+      let dy=b2[0]-a2[0], dz=b2[1]-a2[1];const l=Math.hypot(dy,dz)||1;dy/=l;dz/=l;
+      return {c:[0,y,z],U:[wide[i],0,0],V:[0,-dz*radius[i],dy*radius[i]],w:wh_,slot:S.hair};
+    }),{n:10});
   }
   else if(hs==='spiky'){
-    cap(T0,{up:.056,side:M?.016:.008,nape:.045,vol:.002});
+    cap(T0,{up:.056,side:M?.018:.010,nape:.045,vol:.002});
     // spikes spread over the crown, leaning outwards (golden-angle placement so they never look gridded)
     for(let k=0;k<15;k++){
       const ang=k*2.399963, rad=.010+.056*Math.sqrt(k/14);
@@ -753,11 +787,11 @@ function buildMesh(gender,style){
       lock([[0,y0-.008,z],[0,y0+h*.55,z-.004],[0,y0+h,z-.010]],.016,.004,5,i%2?S.hairHi:S.hair));
   }
   else if(hs==='bob'){
-    cap(T0,{up:.050,side:0,nape:.030,vol:.003});
+    cap(T0,{up:.052,side:.040,nape:.030,vol:.004,sweep:.35});
     streaks(7,1.668,1.62);
     // rounded bob: wraps the head, curls under at the ends, front pulled in so the face stays open
     const bobSpec=[[1.668,1.00,.014],[1.628,1.06,.014],[1.588,1.10,.014],[1.552,1.10,.014],[1.524,1.05,.013],[1.508,.93,.012]];
-    loft(bobSpec.map(([y,k,t])=>{
+    hloft(bobSpec.map(([y,k,t])=>{
       const r=headR(Math.min(Math.max(y,1.53),1.70)), rx=(r.rx+t)*k, rz=(r.rz+t+.002)*k;
       return rY(y,rx,rz,wh_,S.hair,0,r.cz-.010,(s2,c)=>c>.45?[-.55*rx*HK*s2,0,-rz*HK*c]:[0,0,0]);
     }),{n:HAIRN});
@@ -767,13 +801,13 @@ function buildMesh(gender,style){
     }
   }
   else if(hs==='long'){
-    cap(T0,{up:.054,side:0,nape:.075,vol:.003});
+    cap(T0,{up:.056,side:.030,nape:.075,vol:.004,sweep:.55});
     streaks(7,1.668,1.60);
     // long back mass in layers; the front vertices are pulled inside so it falls behind and beside the face
     const spec=[[1.660,.094,.092,0,wh_],[1.600,.096,.084,-.012,wh_],[1.540,.095,.072,-.040,wh_],
                 [1.480,.094,.054,-.085,W2(B.head,B.chest)],[1.420,.095,.042,-.125,W2(B.head,B.chest)],
                 [1.360,.094,.036,-.143,W1(B.chest)],[1.300,.090,.032,-.148,W1(B.chest)],[1.236,.080,.028,-.148,W1(B.chest)]];
-    loft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    hloft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
     if(!HH){
       // strands falling in front of the shoulders
       [1,-1].forEach(sd=>{
@@ -786,47 +820,40 @@ function buildMesh(gender,style){
     }
   }
   else if(hs==='sidepart'){
-    cap(T0,{up:.070,side:0,nape:.075,vol:.004,fl:true,n:20});
+    cap(T0,{up:.066,side:.022,nape:.075,vol:.004,sweep:.9});
     streaks(6,1.672,1.60);
     // long, smooth back mass to just below the shoulders; its front vertices are pulled inside the head
-    const spec=[[1.660,.104,.092,0,wh_],[1.600,.116,.088,-.012,wh_],[1.540,.120,.078,-.040,wh_],
-                [1.480,.120,.060,-.085,W2(B.head,B.chest)],[1.420,.120,.048,-.125,W2(B.head,B.chest)],
-                [1.360,.118,.040,-.143,W1(B.chest)],[1.300,.114,.036,-.148,W1(B.chest)],[1.252,.100,.030,-.144,W1(B.chest)]];
-    loft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    const spec=[[1.660,.104,.092,0,wh_],[1.600,.110,.088,-.012,wh_],[1.540,.104,.078,-.040,wh_],
+                [1.480,.096,.060,-.085,W2(B.head,B.chest)],[1.420,.100,.048,-.125,W2(B.head,B.chest)],
+                [1.360,.104,.040,-.143,W1(B.chest)],[1.300,.104,.036,-.148,W1(B.chest)],[1.252,.092,.030,-.144,W1(B.chest)]];
+    hloft(spec.map(([y,rx,rz,cz,w])=>rY(y,rx,rz,w,S.hair,0,cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
     if(!HH){
-      const ez=(x,y,off)=>{const r=headR(Math.min(Math.max(y,1.53),1.76)),kx=Math.min(.999,Math.abs(x)/(r.rx+off));return r.cz+(r.rz+off)*Math.sqrt(1-kx*kx);};
+      const ez=ezH;
       const zc=y=>torsoAt(y).rz*FSH*.9+.016;
       // the long side: parted just left of the crown, swept across the forehead corner and down in front of the shoulder
       [0,1,2,3].forEach(k=>{
         const o=.011+.0045*k, dx=-.0060*k, fz=.004*k;
-        const P=[[.018,1.776],[-.016,1.768],[-.050,1.744],[-.076,1.708],[-.090,1.664]].map(([x,y])=>[x+(y<1.74?dx:dx*.3),y,ez(x,y,o)]);
+        const P=[[-.050,1.738],[-.070,1.712],[-.082,1.690],[-.092,1.664]].map(([x,y])=>[x+dx*.6,y,ez(x,y,o)]);
         P.push([-.102+dx,1.610,.030+fz],[-.112+dx,1.548,.044+fz],[-.118+dx,1.480,.062+fz],[-.120+dx,1.410,zc(1.410)+fz],
                [-.114+dx,1.345,zc(1.345)+.004+fz],[-.108+dx-.010,1.285,zc(1.285)+.006+fz]);
         lock(P,.016,.007,6,S.hair,1.25);
       });
       // a lighter streak riding on the long side
       {
-        const o=.036, P=[[.014,1.777],[-.018,1.769],[-.052,1.745],[-.078,1.709],[-.095,1.664]].map(([x,y])=>[x,y,ez(x,y,o)]);
+        const o=.034, P=[[-.044,1.742],[-.068,1.716],[-.085,1.690],[-.097,1.664]].map(([x,y])=>[x,y,ez(x,y,o)]);
         P.push([-.108,1.610,.050],[-.120,1.548,.062],[-.128,1.480,.078],[-.130,1.410,zc(1.410)+.014],[-.124,1.345,zc(1.345)+.016]);
         lock(P,.007,.004,5,S.hairHi,1.1);
       }
-      // the short side: swept back and tucked behind the ear
-      [0,1].forEach(k=>{
-        const o=.010+.004*k;
-        const P=[[.018,1.776],[.046,1.764],[.070,1.738],[.086,1.702]].map(([x,y])=>[x,y,ez(x,y,o)]);
-        P.push([.092,1.664,.000],[.096,1.630,-.026-.004*k],[.102,1.570,-.044],[.106,1.490,-.070],[.106,1.420,-.098],[.100,1.350,-.116]);
-        lock(P,.015,.007,6,S.hair,1.2);
-      });
     }
   }
   else if(hs==='wavy'){
-    cap(T0,{up:.078,side:0,nape:.050,vol:.004,fl:true,n:20});
+    cap(T0,{up:.070,side:.022,nape:.050,vol:.004,ear:false,part:true,partDeg:0});
     streaks(6,1.672,1.60);
     // shoulder-length back mass with a gentle sideways swing from ring to ring (the waves)
     const spec=[[1.660,.094,.092,-.000,wh_],[1.600,.097,.086,-.012,wh_],[1.540,.098,.076,-.036,wh_],
                 [1.480,.100,.062,-.070,W2(B.head,B.chest)],[1.430,.104,.052,-.092,W2(B.head,B.chest)],
                 [1.388,.106,.046,-.102,W1(B.chest)],[1.350,.098,.040,-.100,W1(B.chest)],[1.322,.082,.030,-.096,W1(B.chest)]];
-    loft(spec.map(([y,rx,rz,cz,w],i)=>rY(y,rx,rz,w,S.hair,.007*Math.sin(i*1.8),cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
+    hloft(spec.map(([y,rx,rz,cz,w],i)=>rY(y,rx,rz,w,S.hair,.007*Math.sin(i*1.8),cz,(s2,c)=>c>.15?[-.6*rx*HK*s2,0,-rz*HK*c]:[0,0,0])),{n:HAIRN});
     if(!HH){
       const zc=y=>torsoAt(y).rz*FSH*.9+.016;
       const ys=[1.776,1.756,1.730,1.698,1.662,1.622,1.578,1.534,1.490,1.446,1.402,1.358];
@@ -850,38 +877,41 @@ function buildMesh(gender,style){
     }
   }
   else if(hs==='ponytail'){
-    cap(T0,{up:.060,side:M?.010:.004,nape:.022,vol:.004});
+    cap(T0,{up:.082,side:M?.020:.014,nape:.022,vol:.004});
     streaks(6,1.672,1.640);
     const path=[[0,1.738,-.086],[0,1.716,-.112],[0,1.660,-.140],[0,1.582,-.158],[0,1.504,-.163],[0,1.436,-.158],[0,1.392,-.150]];
     lock(path,.030,.011,8);
-    loft([{c:[0,1.742,-.082],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.eye},{c:[0,1.726,-.098],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.eye}],{n:8});   // hair tie
+    hloft([{c:[0,1.742,-.082],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.eye},{c:[0,1.726,-.098],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.eye}],{n:8});   // hair tie
     // loose ends
     [-1,0,1].forEach(k=>lock([[k*.010,1.470,-.162],[k*.016,1.430,-.162],[k*.022,1.384,-.156]],.018,.003,5,k?S.hairHi:S.hair));
     if(!HH) fringeLocks([-.044,-.020,.004,.028,.050],[.014,.018,.020,.016,.012],2,1.730,.004);
   }
   else if(hs==='bun'){
-    cap(T0,{up:.058,side:M?.010:.004,nape:.024,vol:.003});
+    cap(T0,{up:.082,side:M?.020:.014,nape:.024,vol:.003});
     streaks(6,1.672,1.636);
-    loft([{c:[0,1.768,-.040],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.hair},{c:[0,1.790,-.044],U:[.052,0,0],V:[0,0,.052],w:wh_,slot:S.hair},
+    hloft([{c:[0,1.768,-.040],U:[.040,0,0],V:[0,0,.040],w:wh_,slot:S.hair},{c:[0,1.790,-.044],U:[.052,0,0],V:[0,0,.052],w:wh_,slot:S.hair},
           {c:[0,1.816,-.046],U:[.056,0,0],V:[0,0,.056],w:wh_,slot:S.hair},{c:[0,1.842,-.045],U:[.048,0,0],V:[0,0,.048],w:wh_,slot:S.hair},
           {c:[0,1.864,-.043],U:[.030,0,0],V:[0,0,.030],w:wh_,slot:S.hair},{c:[0,1.876,-.042],U:[.012,0,0],V:[0,0,.012],w:wh_,slot:S.hair}],{n:10});
-    loft([{c:[0,1.770,-.040],U:[.055,0,0],V:[0,0,.055],w:wh_,slot:S.eye},{c:[0,1.782,-.042],U:[.055,0,0],V:[0,0,.055],w:wh_,slot:S.eye}],{n:10});  // wrap
+    hloft([{c:[0,1.770,-.040],U:[.055,0,0],V:[0,0,.055],w:wh_,slot:S.eye},{c:[0,1.782,-.042],U:[.055,0,0],V:[0,0,.055],w:wh_,slot:S.eye}],{n:10});  // wrap
     if(!HH) fringeLocks([-.046,-.022,.002,.026,.050],[.016,.020,.022,.018,.014],2,1.730,.004);
   }
   else if(hs==='pigtails'){
-    cap(T0,{up:.058,side:.004,nape:.030,vol:.003});
+    cap(T0,{up:.066,side:.030,nape:.030,vol:.003,part:true,partDeg:0,ear:false});
     streaks(6,1.672,1.630);
     [1,-1].forEach(sd=>{
       lock([[sd*.090,1.704,-.020],[sd*.108,1.655,-.030],[sd*.120,1.585,-.036],[sd*.123,1.515,-.040],[sd*.120,1.452,-.036],[sd*.118,1.420,-.034]],.031,.012,8);
-      loft([{c:[sd*.092,1.708,-.020],U:[.034,0,0],V:[0,0,.034],w:wh_,slot:S.eye},{c:[sd*.100,1.690,-.024],U:[.034,0,0],V:[0,0,.034],w:wh_,slot:S.eye}],{n:8});  // ties
+      hloft([{c:[sd*.092,1.708,-.020],U:[.034,0,0],V:[0,0,.034],w:wh_,slot:S.eye},{c:[sd*.100,1.690,-.024],U:[.034,0,0],V:[0,0,.034],w:wh_,slot:S.eye}],{n:8});  // ties
       [-1,1].forEach(k=>lock([[sd*.121+k*.004,1.480,-.038],[sd*.121+k*.010,1.432,-.036],[sd*.119+k*.016,1.394,-.032]],.016,.003,5,k>0?S.hairHi:S.hair));
     });
     if(!HH) fringeLocks([-.050,-.026,-.002,.022,.046],[.020,.026,.028,.024,.020],2,1.726,.004);
   }
   else if(hs==='afro'){
     // a big, soft sphere of hair with clumps breaking up the silhouette
-    const rr=[[1.690,.103,.109,0],[1.730,.136,.141,.002],[1.775,.158,.160,.002],[1.825,.156,.157,.002],[1.875,.136,.136,.002],[1.920,.100,.100,.002],[1.950,.056,.056,.002],[1.964,.024,.024,.002]];
-    loft(rr.map(([y,rx,rz,cz],i)=>rY(y,rx,rz,wh_,S.hair,0,cz-.008,i===0?hairTw(.020,.006,.080):undefined)),{n:14});
+    const rr=[[1.600,.118,.120,0],[1.650,.138,.140,.002],[1.710,.152,.152,.002],[1.775,.158,.158,.002],[1.840,.150,.150,.002],[1.900,.124,.124,.002],[1.945,.080,.080,.002],[1.968,.030,.030,.002]];
+    hloft(rr.map(([y,rx,rz,cz])=>rY(y,rx,rz,wh_,S.hair,0,cz-.008)),{n:18,capStart:false,cell:(i,j)=>{
+      const a2=((j+1)*20)%360, ang=Math.min(a2,360-a2);
+      return (i<2&&ang<75)?null:undefined;                 // the front of the lowest rows is left open: a forehead
+    }});
     const cl=[[0,.060,.172,1.84],[.8,.12,.165,1.86],[-.8,.12,.165,1.86],[1.6,.12,.160,1.80],[-1.6,.12,.160,1.80],[2.4,.10,.150,1.84],[-2.4,.10,.150,1.84],[3.1,.05,.14,1.87],[.45,.095,.150,1.93],[-.45,.095,.150,1.93]];
     cl.forEach(([ang,rad,sz,y],i)=>{
       const x=Math.sin(ang)*(.150), z=-.008+Math.cos(ang)*(.150)*.95;
@@ -1056,9 +1086,25 @@ function buildMesh(gender,style){
   // face-texture coordinates: a planar projection from the front (the eye patches already carry their own)
   tris.forEach(t=>{if(t.fc) t.i.forEach(vi=>{const v=verts[vi];if(!v.fuv) v.fuv=faceUV(v.p[0],v.p[1]);});});
 
+  // beard colour weights (0..1): the front of the beard is painted into the face texture; this carries the same colour
+  // round the jaw, under the chin and down the neck, where the face block ends. Faded in smoothly, never above the nose.
+  const bw=new Float32Array(verts.length);
+  const bst=!F?style.beard:'none';
+  if(bst==='full'||bst==='short'||bst==='goatee'){
+    const sm=(e0,e1,x)=>{const t=clamp((x-e0)/(e1-e0),0,1);return t*t*(3-2*t);};
+    const wAt=(p,neck)=>{
+      const x=Math.abs(p[0]),y=p[1],z=p[2], front=sm(-.035,.0,z);
+      if(bst==='full') return neck?sm(1.455,1.500,y)*front:(1-sm(1.590,1.604,y))*front;
+      if(bst==='short') return neck?0:(1-sm(1.570,1.584,y))*front;
+      return neck?0:(1-sm(.016,.024,x))*(1-sm(1.552,1.566,y))*sm(.01,.04,z);
+    };
+    for(let i=hv0;i<hv1;i++) bw[i]=wAt(verts[i].p,false);
+    for(let i=nk0;i<nk1;i++) bw[i]=wAt(verts[i].p,true);
+  }
+
   // uniform height scale
   verts.forEach(v=>{v.p=v.p.map(c=>c*g.K);});
-  return {verts,tris,logoTris,ao,tint};
+  return {verts,tris,logoTris,ao,tint,bw,twins};
 }
 
 /* ================= state ================= */
@@ -1068,10 +1114,12 @@ const LOGO_RECT={emblem:[0,0,384,341],plate:[0,357,512,112],size:512};
    One 1024 x 1024 canvas: the left 512 x 816 block is a front view of the face (3.2 px per mm), the two 480 x 240 blocks
    on the right are the open eyes (8 px per mm). It is repainted from the colour choices, drawn live in the maker and
    embedded as a JPEG in the exported GLB. */
-const FT={W:1024,pw:512,ph:816,x0:-.08,x1:.08,yT:1.775,yB:1.52};
+const FT={W:1024,pw:512,ph:816,x0:-.092,x1:.092,yT:1.775,yB:1.52};
 const FPX=FT.pw/(FT.x1-FT.x0), SPX=8000, EYE_CX=768, EYE_CY=[136,392];
 const ftPx=(x,y)=>[(x-FT.x0)/(FT.x1-FT.x0)*FT.pw,(FT.yT-y)/(FT.yT-FT.yB)*FT.ph];
-const faceUV=(x,y)=>{const q=ftPx(x,y);return [q[0]/FT.W,q[1]/FT.W];};
+const faceUV=(x,y)=>{const q=ftPx(Math.max(FT.x0,Math.min(FT.x1,x)),Math.max(FT.yB,Math.min(FT.yT,y)));return [q[0]/FT.W,q[1]/FT.W];};
+// hair tiles: two 512x256 blocks in the lower right of the texture (normal hair, lighter highlight strands)
+const hairUV=(tile,u,v)=>[(518+u*500)/FT.W,(522+tile*256+v*236)/FT.W];
 const eyeUV=(ex,x,y)=>[(EYE_CX+(x-ex)*SPX)/FT.W,(EYE_CY[ex>0?0:1]-(y-1.655)*SPX)/FT.W];
 // the outline of an eye opening in eye-local coordinates: s runs 0 (inner corner) to 1 (outer corner)
 const eyeX=F=>F?.041:.035;                           // lateral position of each eye centre
@@ -1127,8 +1175,9 @@ function paintFace(st){
   [1,-1].forEach(sd=>stroke([[sd*.0056,1.5985],[sd*.0064,1.6002]],.0011,'#5a2a20',.8,.4));
   blob(0,1.5935,.0090,.0030,dark,.14);
 
+  const hasBeard=st.gender==='male'&&['moustache','goatee','short','full'].includes(st.beard);
   // ---- mouth: a wide, gentle smile; thin upper lip, softer lower lip, ink line
-  {
+  const paintMouth=()=>{
     const M=F?1:.80, mouth=st.mouth;
     const half=F?.030:.025, yc=1.5752, lift=F?.0045:.0030;
     const lineP=[];for(let i=0;i<=24;i++){const u=-1+i/12;lineP.push([u*half,yc+lift*Math.pow(Math.abs(u),2.2)]);}
@@ -1142,7 +1191,8 @@ function paintFace(st){
       stroke([[sd*(half+.0012),yc+lift+.0010],[sd*(half+.0044),yc+lift+.0042]],.0008,'#7a3a2c',.75,.4);   // smile creases
     });
     stroke(crom([[-.0075,1.5600],[0,1.5588],[.0075,1.5600]],6),.0007,'#8a4a3a',.30,.8);                 // under the lip
-  }
+  };
+  if(!hasBeard) paintMouth();
 
   // ---- eyebrows: bold, dark and softly arched
   [1,-1].forEach(sd=>{
@@ -1190,6 +1240,35 @@ function paintFace(st){
   fade(0,0,FT.pw,70,0,0,0,70);
   fade(0,FT.ph-40,FT.pw,FT.ph,0,FT.ph,0,FT.ph-40);
 
+  // ---- beard (male): drawn over the skin as hair-coloured shapes with a few strokes of texture, lips clear of it
+  if(hasBeard){
+    const bcol=shade(st.hair,.9), sty=st.beard;
+    const mir=h=>h.concat(h.slice().reverse().map(q=>[-q[0],q[1]]));
+    const top=[[0,1.5925],[.012,1.5935],[.024,1.5890],[.036,1.5855],[.050,1.5870],[.064,1.5915],[.074,1.5985],[.092,1.5995]];
+    const shortTop=[[0,1.5900],[.012,1.5905],[.024,1.5860],[.036,1.5830],[.050,1.5830],[.065,1.5830],[.092,1.5825]];
+    let pts=[], hole=null;
+    if(sty==='full'){pts=mir(top.concat([[.092,1.520]]));hole=[0,1.5728,.0325,.0088];}
+    else if(sty==='short'){pts=mir(shortTop.concat([[.092,1.520]]));hole=[0,1.5728,.0325,.0088];}
+    else if(sty==='goatee') pts=mir([[0,1.5585],[.010,1.5588],[.017,1.5605],[.0200,1.5500],[.0170,1.5300],[.0100,1.5215],[0,1.5200]]);
+    const mous=mir([[0,1.5885],[.007,1.5905],[.016,1.5872],[.0235,1.5800],[.0215,1.5772],[.012,1.5812],[0,1.5805]]);
+    const shapes=sty==='moustache'?[[mous,null]]:(sty==='goatee'?[[pts,null],[mous,null]]:[[pts,hole]]);
+    shapes.forEach(([poly,hl])=>{
+      withBlur(1.5,()=>{
+        path(poly);g.closePath();
+        if(hl){const c=ftPx(hl[0],hl[1]);g.moveTo(c[0]+hl[2]*FPX,c[1]);g.ellipse(c[0],c[1],hl[2]*FPX,hl[3]*FPX,0,0,6.2832,true);}
+        g.fillStyle=rgba(bcol,1);g.fill('evenodd');
+      });
+      g.save();path(poly);g.closePath();g.clip();
+      for(let i=0;i<900;i++){
+        const x=(rnd()-.5)*.16, y=1.52+rnd()*.075, q=ftPx(x,y), a=Math.PI/2+(rnd()-.5)*1.2, L=.0032*FPX;
+        g.strokeStyle=rgba(rnd()<.5?shade(bcol,.62):mixHex(bcol,'#ffffff',.18),.18+rnd()*.14);g.lineWidth=Math.max(1,.00035*FPX);
+        g.beginPath();g.moveTo(q[0],q[1]);g.lineTo(q[0]+Math.cos(a)*L,q[1]+Math.sin(a)*L);g.stroke();
+      }
+      g.restore();
+    });
+    paintMouth();
+  }
+
   // ---- open eyes (one sprite per eye, drawn as seen from the front): big dark iris, bold highlights
   [1,-1].forEach(sd=>{
     const cy=EYE_CY[sd>0?0:1];
@@ -1224,6 +1303,25 @@ function paintFace(st){
     g.restore();
     spr(topP,F?.0030:.0022,ink,1);                                         // lash line along the lid edge
     spr(botP,F?.0012:.0009,ink,.85);                                       // lower lid line
+  });
+  // ---- hair tiles: fine strands running along v, a soft warm highlight band, darker towards both ends
+  [0,1].forEach(tile=>{
+    const x0=512, y0=512+tile*256, w=512, h=256;
+    const base=tile?mixHex(st.hair,'#ffffff',.16):st.hair;
+    g.fillStyle=base;g.fillRect(x0,y0,w,h);
+    for(let i=0;i<340;i++){
+      const x=x0+rnd()*w, sw=.8+rnd()*2.6;
+      const col=rnd()<.55?shade(base,.78+.16*rnd()):mixHex(base,'#fff0dc',.08+.14*rnd());
+      g.strokeStyle=rgba(col,.20+.28*rnd());g.lineWidth=sw;
+      g.beginPath();g.moveTo(x,y0);g.quadraticCurveTo(x+(rnd()-.5)*8,y0+h/2,x+(rnd()-.5)*5,y0+h);g.stroke();
+    }
+    const gr=g.createLinearGradient(0,y0,0,y0+h);
+    gr.addColorStop(0,'rgba(255,240,220,0)');gr.addColorStop(.30,'rgba(255,240,220,0)');gr.addColorStop(.45,'rgba(255,240,220,.20)');
+    gr.addColorStop(.60,'rgba(255,240,220,0)');gr.addColorStop(1,'rgba(255,240,220,0)');
+    g.fillStyle=gr;g.fillRect(x0,y0,w,h);
+    const gd=g.createLinearGradient(0,y0,0,y0+h);
+    gd.addColorStop(0,'rgba(0,0,0,.26)');gd.addColorStop(.12,'rgba(0,0,0,0)');gd.addColorStop(.88,'rgba(0,0,0,0)');gd.addColorStop(1,'rgba(0,0,0,.28)');
+    g.fillStyle=gd;g.fillRect(x0,y0,w,h);
   });
   return cv;
 }
@@ -1805,7 +1903,7 @@ function render(now){
   const bi=mesh.bodyIdx, fi=mesh.faceIdx, nB=bi.length, nF=fi.length;
   if(!bodyData||bodyData.length!==nB*27) bodyData=new Float32Array(nB*27);
   if(!faceData||faceData.length!==nF*33) faceData=new Float32Array(nF*33);
-  const sp=mesh.skinned,out=bodyData,fout=faceData,aoOn=state.ao&&mesh.ao,tint=mesh.tint,vn=mesh.vn;
+  const sp=mesh.skinned,out=bodyData,fout=faceData,aoOn=state.ao&&mesh.ao,tint=mesh.tint,vn=mesh.vn,bwt=mesh.bw,bcLin=toLin(shade(state.hair,.9));
   // smooth vertex normals for the face (only the triangles flagged smooth): area-weighted average of the faces around each vertex
   vn.fill(0);
   for(const t of mesh.smoothTris){
@@ -1813,6 +1911,10 @@ function render(now){
     const ux=sp[b]-sp[a],uy=sp[b+1]-sp[a+1],uz=sp[b+2]-sp[a+2],vx=sp[c]-sp[a],vy=sp[c+1]-sp[a+1],vz=sp[c+2]-sp[a+2];
     const fx=uy*vz-uz*vy,fy=uz*vx-ux*vz,fz=ux*vy-uy*vx;
     for(let k=0;k<3;k++){const q=tr.i[k]*3;vn[q]+=fx;vn[q+1]+=fy;vn[q+2]+=fz;}
+  }
+  for(const tw of mesh.twins){
+    const a3=tw[0]*3,b3=tw[1]*3,x=vn[a3]+vn[b3],y=vn[a3+1]+vn[b3+1],z=vn[a3+2]+vn[b3+2];
+    vn[a3]=vn[b3]=x;vn[a3+1]=vn[b3+1]=y;vn[a3+2]=vn[b3+2]=z;
   }
   let o=0;
   for(let ti=0;ti<nB;ti++){
@@ -1827,7 +1929,10 @@ function render(now){
       if(tr.sm){const l2=Math.hypot(vn[q],vn[q+1],vn[q+2])||1;wx=vn[q]/l2;wy=vn[q+1]/l2;wz=vn[q+2]/l2;}
       const m=aoOn?mesh.ao[vi]:1;
       out[o++]=sp[q];out[o++]=sp[q+1];out[o++]=sp[q+2];out[o++]=wx;out[o++]=wy;out[o++]=wz;
-      out[o++]=col[0]*m*tint[q];out[o++]=col[1]*m*tint[q+1];out[o++]=col[2]*m*tint[q+2];
+      const w=bwt[vi];
+      if(w>0){
+        out[o++]=(col[0]+(bcLin[0]-col[0])*w)*m*tint[q];out[o++]=(col[1]+(bcLin[1]-col[1])*w)*m*tint[q+1];out[o++]=(col[2]+(bcLin[2]-col[2])*w)*m*tint[q+2];
+      } else {out[o++]=col[0]*m*tint[q];out[o++]=col[1]*m*tint[q+1];out[o++]=col[2]*m*tint[q+2];}
     }
   }
   o=0;
@@ -2346,8 +2451,17 @@ async function buildGLB(includeAnim){
     const a=verts[t.i[0]].p,b=verts[t.i[1]].p,c=verts[t.i[2]].p, f=v3.cross(v3.sub(b,a),v3.sub(c,a));
     t.i.forEach(i=>{restVN[i][0]+=f[0];restVN[i][1]+=f[1];restVN[i][2]+=f[2];});
   });
+  (mesh.twins||[]).forEach(([a,b])=>{
+    const x=restVN[a][0]+restVN[b][0],y=restVN[a][1]+restVN[b][1],z=restVN[a][2]+restVN[b][2];
+    restVN[a]=[x,y,z];restVN[b]=[x,y,z];
+  });
   const smoothN=restVN.map(v=>v3.norm(v));
-  const bodyMul=vi=>{const a=state.ao?mesh.ao[vi]:1;return [a*mesh.tint[vi*3],a*mesh.tint[vi*3+1],a*mesh.tint[vi*3+2]];};
+  const skL=toLin(state.skin), bcL=toLin(shade(state.hair,.9)), bRatio=[0,1,2].map(c=>clamp(bcL[c]/Math.max(skL[c],1e-4),0,1));
+  const bodyMul=vi=>{
+    const a=state.ao?mesh.ao[vi]:1, w=mesh.bw?mesh.bw[vi]:0;
+    const bm=c=>1+(bRatio[c]-1)*w;
+    return [a*mesh.tint[vi*3]*bm(0),a*mesh.tint[vi*3+1]*bm(1),a*mesh.tint[vi*3+2]*bm(2)];
+  };
   const bodyPrim=makePrim(mesh.tris.filter(t=>!t.fc),slotUV,bodyMul,smoothN);
   const ibm=new Float32Array(NB*16);
   for(let i=0;i<NB;i++){const m=[1,0,0,0,0,1,0,0,0,0,1,0,-restWorld.P[i][0],-restWorld.P[i][1],-restWorld.P[i][2],1];ibm.set(m,i*16);}
