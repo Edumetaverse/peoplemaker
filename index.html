@@ -166,6 +166,7 @@ select,input[type=text]{width:100%;background:var(--panel2);border:1px solid var
 
     <h2>Pose tools</h2>
     <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button></div>
+    <div class="row"><button id="copyPose">Copy pose as preset text</button></div>
     <div class="row"><button id="mirror">Mirror L &harr; R</button><button id="ground">Drop to floor</button></div>
     <label class="chk"><input type="checkbox" id="pin" checked> Keep feet planted when moving hips</label>
     <label class="chk"><input type="checkbox" id="showJ" checked> Show joints</label>
@@ -1678,12 +1679,12 @@ const PRESETS=[
     sym:{upperArm:[0,-14,56],forearm:[0,-6,10],clavicle:[0,0,8],thigh:[0,0,5],foot:[0,10,0]},
     c:{head:[-14,0,0],spine:[-5,0,0]}},
   {id:'technician',label:'Technician',
-    // down on one knee (right), left foot flat in front, leaning in to work on something at knee height
-    one:{'thigh.L':[-90,0,-4],'shin.L':[58,0,0],'foot.L':[32,0,0],
-         'thigh.R':[20,0,5],'shin.R':[82,0,0],'foot.R':[28,0,0],
-         'upperArm.L':[-52,0,-72],'forearm.L':[0,-44,0],'hand.L':[0,0,0],'clavicle.L':[0,0,-2],
-         'upperArm.R':[-46,0,70],'forearm.R':[0,50,0],'hand.R':[0,0,0],'clavicle.R':[0,0,2]},
-    c:{hips:[0,-6,0],spine:[16,0,0],chest:[10,6,0],neck:[8,0,0],head:[14,-4,0]}},
+    // down on the right knee, left foot forward, leaning in to work at knee height (as set by the user)
+    one:{'thigh.L':[-95,.4,-4],'shin.L':[107.2,0,0],'foot.L':[-12.1,0,0],
+         'thigh.R':[-7.7,-6,-5.5],'shin.R':[120.1,3.3,2.9],'foot.R':[-34,.8,-2.5],
+         'upperArm.L':[-52,0,-72],'forearm.L':[0,-44,0],'hand.L':[-8,-13.4,-27.7],'clavicle.L':[0,0,-2],
+         'upperArm.R':[-48.6,.9,70.4],'forearm.R':[-.9,65.4,7.8],'hand.R':[-.1,1.2,6],'clavicle.R':[0,0,2]},
+    c:{hips:[0,-6,0],spine:[16,0,0],chest:[10,6,0],neck:[8,0,0],head:[3.5,-3.5,-5.7]}},
   {id:'relaxed',label:'Relaxed',
     // weight on the left leg, right knee soft, arms hanging loosely with a slight bend
     one:{'thigh.L':[0,0,-2],'shin.L':[1,0,0],'foot.L':[0,6,0],
@@ -2410,6 +2411,18 @@ sl.forEach(s=>{
 });
 $('resetBone').onclick=()=>{pushUndo();pose.rot[selBone]=[0,0,0,1];syncSliders();markDirty();scheduleSize();};
 $('undo').onclick=doUndo;$('redo').onclick=doRedo;
+$('copyPose').onclick=async()=>{
+  const f=v=>+v.toFixed(1), parts=[], ctr=[];
+  const CENTRE=['hips','spine','chest','neck','head'];
+  BONE_NAMES.forEach((n,i)=>{
+    const e=qToEuler(pose.rot[i]).map(f);
+    if(e.every(v=>Math.abs(v)<.05)) return;
+    (CENTRE.includes(n)?ctr:parts).push(`'${n}':[${e.join(',')}]`);
+  });
+  const txt=`{id:'custom',label:'Custom',one:{${parts.join(',')}},c:{${ctr.join(',').replace(/'(\w+)'/g,'$1')}}}`;
+  try{await navigator.clipboard.writeText(txt);toast('Pose copied');}
+  catch(e){window.prompt('Copy this pose:',txt);}
+};
 const HINT_MOVE=$('hintText').textContent;
 function setMode(md){
   view.mode=md;
